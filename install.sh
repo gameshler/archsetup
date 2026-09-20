@@ -894,7 +894,7 @@ fi
 # by holding Space, making the fallback UKIs unusable exactly when they're needed.
 cat > /boot/efi/loader/loader.conf <<LOADER
 default         arch-linux.efi
-timeout         3
+timeout         0
 console-mode    auto
 editor          no
 LOADER
