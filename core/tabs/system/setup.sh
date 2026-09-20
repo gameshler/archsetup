@@ -59,7 +59,7 @@ main() {
     sudo "$PACKAGER" -Syyu --noconfirm
 
     install_packages \
-        libreoffice-fresh vlc curl flatpak fastfetch p7zip unrar tar rsync \
+        libreoffice-fresh vlc curl flatpak fastfetch p7zip unzip unrar tar rsync \
         exfat-utils fuse-exfat flac jdk-openjdk gimp \
         base-devel mangohud lib32-mangohud \
         htop steam reflector python rust git
