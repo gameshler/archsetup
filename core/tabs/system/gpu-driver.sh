@@ -42,7 +42,7 @@ install_gpu_drivers() {
         ;;
     amd)
         echo "Installing AMD drivers"
-        install_packages mesa vulkan-radeon libva-mesa-driver lib32-vulkan-radeon lib32-mesa xf86-video-amdgpu lib32-libva-mesa-driver
+        install_packages mesa vulkan-radeon libva-mesa-driver
         ;;
     intel)
         echo "Installing Intel drivers"
