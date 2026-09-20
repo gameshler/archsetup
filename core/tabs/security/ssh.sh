@@ -26,6 +26,7 @@ generate_ssh_key() {
 
         ssh-keygen -t ed25519 -C "$(whoami)@$HOSTNAME"
         eval "$(ssh-agent -s)"
+        ssh-add ~/.ssh/id_ed25519
 
     else
         printf "%b\n" "SSH key already exists."
