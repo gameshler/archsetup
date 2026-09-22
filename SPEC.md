@@ -156,9 +156,10 @@ only if `DESTRUCTIVE_STARTED=1`, the teardown recovery commands.
    `INSTALL_DIR=$HOME/Downloads/archsetup`, downloads
    `github.com/gameshler/archsetup` (`main` branch) into `TEMP_DIR`, moves it to
    `INSTALL_DIR`, `chmod +x` all `*.sh`, and runs `core/main.sh` (`start.sh:5`).
-2. `core/main.sh` exports `FILES`, `TABS_DIR`, `COMMON_SCRIPT`, and
-   `SSH_PORT=2351` (`core/main.sh:6`). `TEMP_DIR` and `INSTALL_DIR` are inherited
-   from `start.sh`.
+2. `core/main.sh` exports `FILES`, `TABS_DIR`, and `COMMON_SCRIPT`
+   (`core/main.sh:6`). `TEMP_DIR` and `INSTALL_DIR` are inherited from
+   `start.sh`. `SSH_PORT` is not set here: the security tabs ask for it and
+   remember the answer (see below).
 3. `choose_directory` lists the current directory (top level shows category
    directories only; deeper levels show subdirectories and `*.sh` files),
    sorted, with an Exit/Back sentinel (`core/main.sh:20`).
@@ -364,7 +365,8 @@ guaranteed when the script is launched through the Stage-2 chain
 | `FILES` | `core/main.sh:6` | `$INSTALL_DIR/files` (dotfile source). |
 | `TABS_DIR` | `core/main.sh:7` | `$INSTALL_DIR/core/tabs`. |
 | `COMMON_SCRIPT` | `core/main.sh:8` | `$TABS_DIR/common-script.sh`. |
-| `SSH_PORT` | `core/main.sh:9` | `2351`; consumed by `security/ssh.sh`, `security/nftables.sh`, `security/ufw.sh`. |
+| `SSH_PORT` | prompted by `security/ssh.sh`, persisted to `$SSH_PORT_FILE` | Consumed by `security/ssh.sh`, `security/nftables.sh`, `security/ufw.sh`. Set it in the environment to run those tabs unattended. |
+| `SSH_PORT_FILE` | `common-script.sh` | `${XDG_CONFIG_HOME:-$HOME/.config}/archsetup/ssh-port`; outside `INSTALL_DIR` so the chosen port survives cleanup. |
 | `PACKAGER`, `INIT_MANAGER`, `HELPER` | set on sourcing `common-script.sh` | package manager, init tool, AUR helper. |
 
 ### 8.4 Privilege
@@ -382,9 +384,13 @@ safe: `if ! command_exists X; then install_packages X; else echo "already
 installed"; fi` (e.g. `security/ssh.sh`, `apps/browsers/firefox.sh`,
 `system/gpu-driver.sh`, `utils/docker-setup.sh`). `install_packages` uses
 `pacman -S --needed --noconfirm`. Config-writing scripts lean on idempotent
-`sed`/`grep -q` edits (e.g. `system/setup.sh`, `security/ssh.sh`) or explicit
-`.bak`/`-bak` backups before overwrite (`ghostty-setup.sh`, `rofi-setup.sh`,
-`auto-mount.sh`). New scripts should follow these patterns.
+`sed`/`grep -q` edits (e.g. `system/setup.sh`) or explicit `.bak`/`-bak` backups
+before overwrite (`ghostty-setup.sh`, `rofi-setup.sh`, `auto-mount.sh`).
+`security/ssh.sh` rewrites each `sshd_config` directive in place with `awk`
+(`set_directive`) rather than appending, because sshd keeps the first value it
+sees for a keyword; it backs up to `sshd_config.archsetup.bak` first and only
+touches the global section, leaving `Match` blocks alone. New scripts should
+follow these patterns.
 
 ### 8.6 Runtime validation
 

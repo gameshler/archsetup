@@ -343,11 +343,17 @@ vim /etc/hosts
 Create user and configure sudo:
 
 ```bash
-useradd -m username
+useradd -m -G wheel username
 passwd username
-visudo
-    	%wheel	ALL=(ALL) ALL # Uncomment this line
-usermod -aG wheel username
+
+# Grant wheel via a drop-in rather than editing /etc/sudoers. A package update
+# ships a new /etc/sudoers as .pacnew and your edit is left behind; a drop-in
+# survives. This is the exact line install.sh writes and verify-install.sh checks.
+echo '%wheel ALL=(ALL:ALL) ALL' > /etc/sudoers.d/10-wheel
+chmod 440 /etc/sudoers.d/10-wheel
+
+# A malformed drop-in leaves a system nobody can escalate on. Check before rebooting.
+visudo -cf /etc/sudoers.d/10-wheel
 ```
 
 Enable essential services:
