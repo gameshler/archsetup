@@ -201,7 +201,7 @@ ftext() {
 # Copy and go to the directory
 cpg() {
     if [ -d "$2" ]; then
-        cp "$1" "$2" && cd "$2"
+        cp "$1" "$2" && { cd "$2" || return; }
     else
         cp "$1" "$2"
     fi
@@ -210,7 +210,7 @@ cpg() {
 # Move and go to the directory
 mvg() {
     if [ -d "$2" ]; then
-        mv "$1" "$2" && cd "$2"
+        mv "$1" "$2" && { cd "$2" || return; }
     else
         mv "$1" "$2"
     fi
@@ -218,22 +218,27 @@ mvg() {
 
 # Create and go to the directory
 mkdirg() {
-    mkdir -p "$1"
-    cd "$1"
+    mkdir -p "$1" || return
+    cd "$1" || return
 }
 
 # Goes up a specified number of directories  (i.e. up 4)
 up() {
-    local d=""
-    limit=$1
-    for ((i = 1; i <= limit; i++)); do
-        d=$d/..
-    done
-    d=$(echo $d | sed 's/^\///')
-    if [ -z "$d" ]; then
-        d=..
+    # limit and i were not local, so both leaked into the interactive shell -
+    # and a missing or non-numeric argument silently behaved like `up 1`
+    # instead of saying anything.
+    local limit="${1:-1}" d="" i
+
+    if [[ ! $limit =~ ^[0-9]+$ ]] || ((limit < 1)); then
+        echo "up: usage: up [number of directories]" >&2
+        return 1
     fi
-    cd $d
+
+    for ((i = 1; i <= limit; i++)); do
+        d="$d/.."
+    done
+
+    cd "${d#/}" || return
 }
 
 # Automatically do an ls after each cd, z, or zoxide
@@ -253,6 +258,49 @@ trim() {
     echo -n "$var"
 }
 
+#######################################################
+# PATH AND TOOL ACTIVATION
+#######################################################
+# This file is a symlink that bash-setup.sh recreates from the repo. Installers
+# such as nvm, bun and the Claude CLI append their activation lines to
+# ~/.bashrc, and those appended lines are thrown away the moment the symlink is
+# relinked - which is why tools "disappear" after running bash-setup.sh.
+# Activating them here instead makes them survive. Put your own additions in
+# ~/.bashrc.d/*.sh, which is sourced at the bottom and is never overwritten.
+
 export PATH="$HOME/.local/bin:/var/lib/flatpak/exports/bin:$HOME/.local/share/flatpak/exports/bin:$PATH"
+
+# Bun
+export BUN_INSTALL="$HOME/.bun"
+[ -d "$BUN_INSTALL/bin" ] && export PATH="$BUN_INSTALL/bin:$PATH"
+[ -s "$BUN_INSTALL/_bun" ] && . "$BUN_INSTALL/_bun"
+
+# nvm - must be sourced, not just put on PATH: nvm is a shell function.
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+
+# Point at the ssh-agent.service user unit, but only outside an SSH login:
+# overwriting SSH_AUTH_SOCK on the remote end breaks agent forwarding.
+# The -S test matters: if that unit was never enabled the socket does not
+# exist, and exporting a path to nothing makes every ssh invocation complain
+# about an unreachable agent instead of just falling back to the key file.
+if [ -z "${SSH_CONNECTION:-}" ] &&
+    [ -S "${XDG_RUNTIME_DIR:-/nonexistent}/ssh-agent.socket" ]; then
+    export SSH_AUTH_SOCK="$XDG_RUNTIME_DIR/ssh-agent.socket"
+fi
+
+# fzf key bindings and fuzzy completion
+if [[ $iatest -gt 0 ]] && command -v fzf >/dev/null 2>&1; then
+    eval "$(fzf --bash)"
+fi
+
+# Your own settings. Anything in here survives re-running bash-setup.sh.
+if [ -d "$HOME/.bashrc.d" ]; then
+    for _rc in "$HOME/.bashrc.d"/*.sh; do
+        [ -r "$_rc" ] && . "$_rc"
+    done
+    unset _rc
+fi
 
 eval "$(starship init bash)"
