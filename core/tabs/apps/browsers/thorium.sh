@@ -1,5 +1,8 @@
 #!/bin/sh -e
 
+# menu: Thorium
+# desc: Performance-tuned Chromium fork
+
 . "$COMMON_SCRIPT"
 
 install_thorium() {

@@ -1,5 +1,8 @@
 #!/bin/sh -e
 
+# menu: Ghostty
+# desc: Ghostty terminal emulator
+
 . "$COMMON_SCRIPT"
 
 install_ghostty() {

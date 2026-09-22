@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# menu: System Cleanup
+# desc: Remove orphans and clear package caches
+
 . "$COMMON_SCRIPT"
 
 set -euo pipefail

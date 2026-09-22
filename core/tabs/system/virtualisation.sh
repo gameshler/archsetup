@@ -1,5 +1,8 @@
 #!/bin/sh -e
 
+# menu: Virtualisation
+# desc: QEMU, libvirt and virt-manager
+
 . "$COMMON_SCRIPT"
 
 check_kvm() {

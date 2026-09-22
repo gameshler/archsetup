@@ -1,5 +1,8 @@
 #!/bin/sh -e
 
+# menu: Rofi
+# desc: Rofi application launcher
+
 . "$COMMON_SCRIPT"
 
 install_rofi() {

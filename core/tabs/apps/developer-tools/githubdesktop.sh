@@ -1,5 +1,8 @@
 #!/bin/sh -e
 
+# menu: GitHub Desktop
+# desc: GitHub Desktop Git client
+
 . "$COMMON_SCRIPT"
 
 install_github_desktop() {
