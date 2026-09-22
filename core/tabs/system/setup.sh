@@ -32,21 +32,9 @@ rank_mirrors() {
     # Timestamped, so a second run cannot overwrite the pristine backup with an
     # already-reflector-generated list.
     sudo cp /etc/pacman.d/mirrorlist "/etc/pacman.d/mirrorlist.bak.$(date +%Y%m%d-%H%M%S)"
-
-    # reflector can exit 0 and still leave an empty list (transient mirror JSON,
-    # every candidate timing out). Write to a temp file and only install it once
-    # it actually contains Server lines, or pacman is left with nothing.
-    local tmp
-    tmp="$(mktemp)"
-    if sudo reflector --verbose "${REFLECTOR_ARGS[@]}" --save "$tmp" &&
-        grep -q '^[[:space:]]*Server' "$tmp"; then
-        sudo install -m 644 "$tmp" /etc/pacman.d/mirrorlist
-        printf "%b\n" "Mirrorlist updated:"
-        grep '^[[:space:]]*Server' "$tmp" | head -5
-    else
-        printf "%b\n" "reflector produced no usable mirrors; keeping the existing mirrorlist."
-    fi
-    rm -f "$tmp"
+    
+    sudo reflector --verbose "${REFLECTOR_ARGS[@]}" --save "/etc/pacman.d/mirrorlist" || printf "%b\n" "reflector produced no usable mirrors; keeping the existing mirrorlist."
+        
 }
 
 enable_reflector() {
