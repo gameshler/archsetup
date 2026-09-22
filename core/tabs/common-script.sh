@@ -142,5 +142,121 @@ is_service_active() {
     esac
 }
 
+# The SSH port is asked for once and remembered here rather than hardcoded in
+# core/main.sh, so the number is not published in this repo. It is stored under
+# $HOME and not under INSTALL_DIR because core/main.sh deletes INSTALL_DIR when
+# it exits cleanly; keeping it outside means security/ssh.sh, security/ufw.sh
+# and security/nftables.sh read back the same value on a later run and can never
+# disagree about which port is open.
+SSH_PORT_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/archsetup/ssh-port"
+
+is_valid_port() {
+    case "${1:-}" in
+    "" | *[!0-9]*) return 1 ;;
+    esac
+    [ "$1" -ge 1 ] && [ "$1" -le 65535 ]
+}
+
+save_ssh_port() {
+    mkdir -p "$(dirname "$SSH_PORT_FILE")"
+    printf '%s\n' "$1" >"$SSH_PORT_FILE"
+}
+
+# Prints nothing when there is no usable saved answer, so callers can test with
+# [ -n ... ] and fall through to prompting.
+read_saved_ssh_port() {
+    local saved=""
+
+    [ -r "$SSH_PORT_FILE" ] || return 0
+    saved="$(tr -d '[:space:]' <"$SSH_PORT_FILE" 2>/dev/null || true)"
+    is_valid_port "$saved" || return 0
+
+    printf '%s' "$saved"
+}
+
+# Returns 1 when SSH_PORT is unset so callers can fall through. An explicit but
+# invalid value is fatal rather than ignored: quietly substituting a different
+# port is how sshd and the firewall end up disagreeing.
+accept_env_ssh_port() {
+    [ -n "${SSH_PORT:-}" ] || return 1
+
+    if ! is_valid_port "$SSH_PORT"; then
+        printf "%b\n" "SSH_PORT='$SSH_PORT' is not a number between 1 and 65535." >&2
+        exit 1
+    fi
+
+    export SSH_PORT
+    save_ssh_port "$SSH_PORT"
+    printf "%b\n" "Using SSH port $SSH_PORT from the environment."
+}
+
+# Always asks, defaulting to whatever is already known so pressing Enter keeps
+# it. security/ssh.sh uses this because it is the tab that decides the port.
+prompt_ssh_port() {
+    local current="" answer="" at_eof=0
+
+    accept_env_ssh_port && return 0
+
+    current="$(read_saved_ssh_port)"
+
+    # Ask on the terminal even when the tab's stdin is redirected. Testing
+    # [ -r /dev/tty ] is not enough: the node is readable but opening it fails
+    # when there is no controlling terminal, which left the loop below spinning
+    # on an empty answer forever. Open it for real, and fall back to stdin.
+    if (: </dev/tty) 2>/dev/null; then
+        exec 3</dev/tty
+    else
+        exec 3<&0
+    fi
+
+    printf "%b\n" "Choose the port the SSH server will listen on."
+    printf "%b\n" "Anything other than 22 keeps it off the obvious scan target."
+
+    while :; do
+        if [ -n "$current" ]; then
+            printf "%b" "SSH port [$current]: "
+        else
+            printf "%b" "SSH port (1-65535): "
+        fi
+
+        read -r answer <&3 || at_eof=1
+        [ -n "$answer" ] || answer="$current"
+
+        is_valid_port "$answer" && break
+
+        # Nothing more is coming, so re-prompting would never terminate.
+        if [ "$at_eof" -eq 1 ]; then
+            exec 3<&-
+            printf "%b\n" "No SSH port given and no terminal to ask on." >&2
+            printf "%b\n" "Set it non-interactively instead: SSH_PORT=<port> $0" >&2
+            exit 1
+        fi
+
+        printf "%b\n" "'$answer' is not a number between 1 and 65535."
+    done
+
+    exec 3<&-
+    export SSH_PORT="$answer"
+    save_ssh_port "$SSH_PORT"
+}
+
+# Never asks when the answer is already known. The firewall tabs use this so
+# they open exactly the port security/ssh.sh configured.
+resolve_ssh_port() {
+    local saved=""
+
+    accept_env_ssh_port && return 0
+
+    saved="$(read_saved_ssh_port)"
+    if [ -n "$saved" ]; then
+        export SSH_PORT="$saved"
+        printf "%b\n" "Using SSH port $SSH_PORT (remembered from $SSH_PORT_FILE)."
+        return 0
+    fi
+
+    printf "%b\n" "No SSH port has been chosen yet."
+    prompt_ssh_port
+}
+
 check_package_manager "pacman"
 check_init_manager 'systemctl rc-service sv'
