@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# menu: Bash Environment
+# desc: Bash config, Starship prompt, fzf and Nerd Font
+
 . "$COMMON_SCRIPT"
 
 gitpath="$HOME/.local/share/bash"
@@ -14,14 +17,19 @@ setup_bash() {
     if [ -d "$gitpath" ]; then
         rm -rf "$gitpath"
     fi
-    mkdir -p "$HOME/.local/share/bash"
+    mkdir -p "$gitpath"
+
+    # Anything the user adds lives here, not in the managed .bashrc, so that
+    # wiping $gitpath above cannot take it with it.
+    mkdir -p "$HOME/.bashrc.d"
+
     files=(starship.toml .bashrc)
 
     for file in "${files[@]}"; do
         src="$FILES/$file"
         dest="$gitpath/$file"
         if [ -f "$src" ]; then
-            cat "$src" >>"$dest"
+            cp "$src" "$dest"
         else
             echo "Warning: $src not found, skipping."
         fi
@@ -63,7 +71,10 @@ install_starship_fzf() {
         printf "%b\n" "Fzf already installed"
     else
         git clone --depth 1 https://github.com/junegunn/fzf.git ~/.fzf
-        sudo ~/.fzf/install
+        # Not under sudo: the installer writes into the invoking user's home.
+        # --no-update-rc because .bashrc is ours and already runs
+        # `eval "$(fzf --bash)"`; letting it append would be overwritten anyway.
+        ~/.fzf/install --key-bindings --completion --no-update-rc
     fi
 }
 
@@ -88,6 +99,15 @@ link_config() {
         printf "%b\n" "Failed to create symbolic link for starship.toml"
         exit 1
     }
+
+    # The displaced file is where tool installers had appended their activation
+    # lines. The new .bashrc activates nvm, bun and ~/.local/bin itself, so
+    # nothing is lost - but say where the old one went rather than leaving the
+    # user to guess why their prompt changed.
+    if [ -e "$HOME/.bashrc.bak" ]; then
+        printf "%b\n" "Your previous .bashrc is kept at $HOME/.bashrc.bak"
+    fi
+    printf "%b\n" "Add your own settings as ~/.bashrc.d/*.sh - those are never overwritten."
     printf "%b\n" "Done! restart your shell to see the changes."
 }
 
