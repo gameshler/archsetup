@@ -5,7 +5,11 @@ set -euo pipefail
 # Configuration
 REPO="gameshler/archsetup"
 BRANCH="main"
-export TEMP_DIR=$(mktemp -d -t archsetup-XXXXXX)
+# Assigned before export: `export TEMP_DIR=$(...)` takes the exit status of
+# export, not of mktemp, so a failure here would sail past `set -e` and leave
+# TEMP_DIR empty for every path below.
+TEMP_DIR="$(mktemp -d -t archsetup-XXXXXX)"
+export TEMP_DIR
 export INSTALL_DIR="$HOME/Downloads/archsetup"
 
 # Main
