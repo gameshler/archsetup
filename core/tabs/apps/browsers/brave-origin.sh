@@ -1,5 +1,8 @@
 #!/bin/sh -e
 
+# menu: Brave Origin
+# desc: Brave Origin build (AUR: brave-origin-bin)
+
 . "$COMMON_SCRIPT"
 
 install_brave_origin() {

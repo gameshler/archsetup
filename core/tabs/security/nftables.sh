@@ -1,5 +1,8 @@
 #!/bin/sh -e
 
+# menu: nftables
+# desc: nftables firewall and kernel network hardening
+
 . "$COMMON_SCRIPT"
 
 install_nftables() {
@@ -13,6 +16,10 @@ install_nftables() {
 }
 
 configure_nftables() {
+    # Reads the port security/ssh.sh chose, and only asks if it was never set,
+    # so the ruleset can never open a port sshd is not listening on.
+    resolve_ssh_port
+
     # Detect interface used for default route
     WAN_IF=$(ip route | awk '/^default/ {print $5; exit}')
     if [ -z "$WAN_IF" ]; then

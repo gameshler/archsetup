@@ -1,5 +1,8 @@
 #!/bin/sh -e
 
+# menu: Discord
+# desc: Discord voice and text chat
+
 . "$COMMON_SCRIPT"
 
 install_discord() {

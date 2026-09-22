@@ -1,5 +1,8 @@
 #!/bin/sh -e
 
+# menu: VS Code
+# desc: Visual Studio Code editor
+
 . "$COMMON_SCRIPT"
 
 install_vscode() {

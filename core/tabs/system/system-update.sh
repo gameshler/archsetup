@@ -1,5 +1,8 @@
 #!/bin/sh -e
 
+# menu: System Update
+# desc: Update official, AUR and Flatpak packages
+
 . "$COMMON_SCRIPT"
 
 install_rate_mirrors() {

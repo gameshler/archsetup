@@ -1,5 +1,8 @@
 #!/bin/sh -e
 
+# menu: Zoom
+# desc: Zoom video conferencing
+
 . "$COMMON_SCRIPT"
 
 install_zoom() {

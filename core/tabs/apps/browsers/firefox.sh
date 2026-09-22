@@ -1,5 +1,8 @@
 #!/bin/sh -e
 
+# menu: Firefox
+# desc: Mozilla Firefox web browser
+
 . "$COMMON_SCRIPT"
 
 install_firefox() {

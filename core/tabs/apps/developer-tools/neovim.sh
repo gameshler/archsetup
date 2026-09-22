@@ -1,5 +1,8 @@
 #!/bin/sh -e
 
+# menu: Neovim
+# desc: Neovim editor and configuration
+
 . "$COMMON_SCRIPT"
 
 clone_neovim() {

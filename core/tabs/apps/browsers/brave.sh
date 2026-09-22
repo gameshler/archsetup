@@ -1,5 +1,8 @@
 #!/bin/sh -e
 
+# menu: Brave
+# desc: Brave browser (AUR: brave-bin)
+
 . "$COMMON_SCRIPT"
 
 install_brave() {

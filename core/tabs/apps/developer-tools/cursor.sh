@@ -1,5 +1,8 @@
 #!/bin/sh -e
 
+# menu: Cursor
+# desc: Cursor AI code editor
+
 . "$COMMON_SCRIPT"
 
 install_cursor() {

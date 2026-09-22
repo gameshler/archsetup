@@ -1,6 +1,11 @@
 #!/bin/sh
 
+# menu: dwm
+# desc: Build and install the dwm window manager
+
 . "$COMMON_SCRIPT"
+
+DWM_DIR="$HOME/.local/share/dwm"
 
 setup_dwm() {
     install_packages \
@@ -12,15 +17,24 @@ setup_dwm() {
 }
 
 make_dwm() {
-    [ ! -d "$HOME/.local/share" ] && mkdir -p "$HOME/.local/share/"
-    if [ ! -d "$HOME/.local/share/dwm" ]; then
+    mkdir -p "$HOME/.local/share/"
+    if [ ! -d "$DWM_DIR" ]; then
         printf "%b\n" "DWM not found, cloning repository..."
-        cd "$HOME/.local/share/" && git clone https://github.com/gameshler/dwm.git
-        cd dwm/
+        git clone https://github.com/gameshler/dwm.git "$DWM_DIR" || {
+            printf "%b\n" "Failed to clone dwm."
+            exit 1
+        }
     else
-        printf "%b\n" "DWM directory already exists, replacing.."
-        cd "$HOME/.local/share/dwm" && git pull
+        printf "%b\n" "DWM directory already exists, updating.."
+        git -C "$DWM_DIR" pull
     fi
+
+    # An unchecked cd here used to leave the build - and every relative path
+    # after it - running in whatever directory the tab happened to start in.
+    cd "$DWM_DIR" || {
+        printf "%b\n" "Could not enter $DWM_DIR."
+        exit 1
+    }
     sudo make clean install # Run make clean install
 }
 
@@ -62,18 +76,21 @@ clone_config_folders() {
     [ ! -d ~/.config ] && mkdir -p ~/.config
     [ ! -d ~/.local/bin ] && mkdir -p ~/.local/bin
     # Copy scripts to local bin
-    cp -rf "$HOME/.local/share/dwm/scripts/." "$HOME/.local/bin/"
+    cp -rf "$DWM_DIR/scripts/." "$HOME/.local/bin/"
 
     FONT_DIR="$HOME/.local/share/fonts"
     mkdir -p "$FONT_DIR"
-    if [ -d "$HOME/.local/share/dwm/config/polybar/fonts" ]; then
-        cp -r "$HOME/.local/share/dwm/config/polybar/fonts/"* "$FONT_DIR/"
+    if [ -d "$DWM_DIR/config/polybar/fonts" ]; then
+        cp -r "$DWM_DIR/config/polybar/fonts/"* "$FONT_DIR/"
         fc-cache -fv
         printf "%b\n" "Polybar icon fonts installed"
     fi
 
-    # Iterate over all directories in config/*
-    for dir in config/*/; do
+    # Absolute, not "config/*/": the relative glob only resolved because
+    # make_dwm happened to leave the shell inside $DWM_DIR. If that cd had
+    # failed the loop matched nothing, copied no configs, and said so for a
+    # directory that does exist - which is why a second run appeared to fix it.
+    for dir in "$DWM_DIR"/config/*/; do
         # Extract the directory name
         dir_name=$(basename "$dir")
 
