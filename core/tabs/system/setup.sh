@@ -1,38 +1,72 @@
 #!/usr/bin/env bash
 
+# menu: Base Setup
+# desc: Core packages, pacman config and fastest mirrors
+
 . "$COMMON_SCRIPT"
 
 set -euo pipefail
 
-choose_installation() {
+# Rank mirrors worldwide by measured download rate, with no country filter.
+#
+# Filtering by country is what starved this box of mirrors: a small country can
+# publish only a handful, and the Arch wiki says so outright — "It is typically
+# not a good idea to filter by country; there are only a finite number of
+# mirrors in a single country. Network throughput is only partly determined by
+# geographical distance." So the pool is every HTTPS mirror synced recently,
+# narrowed by --latest, then rate-tested by --fastest.
+#
+# reflector.service re-runs this on every boot (see enable_reflector), so the
+# list follows whatever is actually fast from here today.
+readonly -a REFLECTOR_ARGS=(
+    --protocol https   # HTTPS only
+    --age 12           # synced within the last 12 hours
+    --latest 40        # 40 most recently synced, worldwide
+    --fastest 10       # rate-test those, keep the 10 fastest
+    --sort rate
+)
 
-    local options=("AU" "AT" "BY" "BE" "BR" "BG" "CA" "CL" "CN" "CO" "CZ" "DK" "EC" "FI" "FR" "DE" "GR" "HK" "HU" "IS" "IN" "ID" "IR" "IE" "IL" "IT" "JP" "KZ" "LV" "LT" "LU" "MK" "NL" "NC" "NZ" "NO" "PL" "PT" "RO" "RU" "RS" "SG" "SK" "ZA" "KR" "ES" "SE" "CH" "TW" "TH" "TR" "UA" "GB" "US" "VN")
+rank_mirrors() {
+    printf "%b\n" "Ranking mirrors worldwide by download rate (no country filter)..."
 
-    printf "Please select your country:\n"
+    # Timestamped, so a second run cannot overwrite the pristine backup with an
+    # already-reflector-generated list.
+    sudo cp /etc/pacman.d/mirrorlist "/etc/pacman.d/mirrorlist.bak.$(date +%Y%m%d-%H%M%S)"
 
-    local i=1
-    for code in "${options[@]}"; do
-        printf "%2d)%s " "$i" "$code"
-        ((i++))
-        if (((i - 1) % 10 == 0)); then printf "\n"; fi
-    done
-    printf "\n"
+    # reflector can exit 0 and still leave an empty list (transient mirror JSON,
+    # every candidate timing out). Write to a temp file and only install it once
+    # it actually contains Server lines, or pacman is left with nothing.
+    local tmp
+    tmp="$(mktemp)"
+    if sudo reflector --verbose "${REFLECTOR_ARGS[@]}" --save "$tmp" &&
+        grep -q '^[[:space:]]*Server' "$tmp"; then
+        sudo install -m 644 "$tmp" /etc/pacman.d/mirrorlist
+        printf "%b\n" "Mirrorlist updated:"
+        grep '^[[:space:]]*Server' "$tmp" | head -5
+    else
+        printf "%b\n" "reflector produced no usable mirrors; keeping the existing mirrorlist."
+    fi
+    rm -f "$tmp"
+}
 
-    local choice
-    while :; do
-        printf "Enter your choice (1-%d): " "${#options[@]}"
-        read -r choice
+enable_reflector() {
+    sudo mkdir -p /etc/xdg/reflector
+    # reflector.service reads its options from this file. --save must be in it,
+    # or the boot run would print to stdout and never touch the mirrorlist.
+    printf '%s --save /etc/pacman.d/mirrorlist\n' "${REFLECTOR_ARGS[*]}" |
+        sudo tee /etc/xdg/reflector/reflector.conf >/dev/null
 
-        if [[ "$choice" =~ ^[0-9]+$ ]] && ((choice >= 1 && choice <= ${#options[@]})); then
-            break
-        fi
-        echo "Invalid choice, please try again."
-    done
+    # reflector.service runs on every boot; reflector.timer runs it weekly. The
+    # wiki calls enabling both redundant, and "on every boot" is what we want
+    # here, so enable only the service and make sure the timer is not also armed.
+    #
+    # The service needs the network genuinely up, not merely configured, so the
+    # NetworkManager wait unit must back network-online.target.
+    sudo systemctl enable NetworkManager-wait-online.service
+    sudo systemctl enable reflector.service
+    sudo systemctl disable reflector.timer 2>/dev/null || true
 
-    local index=$((choice - 1))
-    COUNTRY_CODE="${options[$index]}"
-
-    echo "You selected: $COUNTRY_CODE"
+    printf "%b\n" "reflector.service enabled — mirrors are re-ranked on every boot."
 }
 
 main() {
@@ -47,10 +81,9 @@ main() {
         -e 's/^\s*#\s*(ParallelDownloads\s*=)/\1/' \
         /etc/pacman.conf
 
-    sudo sed -i -E '/^\s*#?\s*\[multilib\]/,/^\s*\[.*\]/ {
-    s/^\s*#\s*(\[multilib\])/\1/
-    s/^\s*#\s*(Include\s*=\s*\/etc\/pacman\.d\/mirrorlist)/\1/
-}' /etc/pacman.conf
+    # Shared with system/gpu-driver.sh, which needs multilib for its lib32-*
+    # packages and cannot assume this tab has already run.
+    enable_multilib
 
     if ! grep -q "^ILoveCandy" /etc/pacman.conf; then
         sudo sed -i '/^ParallelDownloads *=.*/a ILoveCandy' /etc/pacman.conf
@@ -64,14 +97,8 @@ main() {
         base-devel mangohud lib32-mangohud \
         htop steam reflector python rust git
 
-    choose_installation
-    sudo cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.bak
-    
-    sudo reflector --verbose --protocol https -a 24 -c "$COUNTRY_CODE" --score 15 -f 5 -l 20 --sort rate --save /etc/pacman.d/mirrorlist
-    echo "--verbose --protocol https --age 24 --country $COUNTRY_CODE --score 15 --fastest 5 --latest 20 --sort rate --save /etc/pacman.d/mirrorlist" | sudo tee /etc/xdg/reflector/reflector.conf > /dev/null
-    
-    sudo systemctl enable reflector.service
-    sudo systemctl enable --now reflector.timer
+    rank_mirrors
+    enable_reflector
 
     # mangohud config
     printf "%b\n" "Configuring MangoHud"
