@@ -143,47 +143,62 @@ disk_gib() {
     echo $(( bytes / 1073741824 ))
 }
 
+# Parse a user-entered size into whole GiB, accepting "40", "40G", "40g" or
+# "40GiB". Prints the integer on success; returns 1 on anything else so the
+# caller can re-prompt instead of feeding garbage to lvcreate.
+size_to_gib() {
+    local s="${1,,}"
+    s="${s%ib}"; s="${s%g}"
+    [[ "$s" =~ ^[0-9]+$ ]] || return 1
+    printf '%s' "$s"
+}
+
+# Every local below is __-prefixed on purpose. These helpers assign to the
+# caller's variable by name via `printf -v`, so a local sharing that name would
+# shadow it: passing a variable called `reply` used to write to this function's
+# own local and leave the caller's untouched (and unset under `set -u`).
+#
 # Prompt with a default: prompt_default VAR "Question" "default"
 prompt_default() {
-    local __var="$1" question="$2" default="$3" reply=""
-    read -rp "$question [$default]: " reply || true
-    printf -v "$__var" '%s' "${reply:-$default}"
+    local __var="$1" __question="$2" __default="$3" __reply=""
+    read -rp "$__question [$__default]: " __reply || true
+    printf -v "$__var" '%s' "${__reply:-$__default}"
 }
 
 # Prompt for a non-empty value (loops until given).
 prompt_required() {
-    local __var="$1" question="$2" reply=""
+    local __var="$1" __question="$2" __reply=""
     while :; do
-        read -rp "$question: " reply || true
-        [[ -n "$reply" ]] && break
+        read -rp "$__question: " __reply || true
+        [[ -n "$__reply" ]] && break
         warn "A value is required."
     done
-    printf -v "$__var" '%s' "$reply"
+    printf -v "$__var" '%s' "$__reply"
 }
 
 # Prompt for a value that must match a regex (loops until it does).
 # prompt_matching VAR "Question" '^regex$' "hint shown on mismatch"
 prompt_matching() {
-    local __var="$1" question="$2" regex="$3" hint="$4" reply=""
+    local __var="$1" __question="$2" __regex="$3" __hint="$4" __reply=""
     while :; do
-        read -rp "$question: " reply || true
-        [[ "$reply" =~ $regex ]] && break
-        warn "$hint"
+        read -rp "$__question: " __reply || true
+        [[ "$__reply" =~ $__regex ]] && break
+        warn "$__hint"
     done
-    printf -v "$__var" '%s' "$reply"
+    printf -v "$__var" '%s' "$__reply"
 }
 
 # Prompt for a hidden password with confirmation (loops until they match).
 prompt_password() {
-    local __var="$1" label="$2" p1="" p2=""
+    local __var="$1" __label="$2" __p1="" __p2=""
     while :; do
-        read -rsp "$label password: " p1; echo
-        [[ -z "$p1" ]] && { warn "Password cannot be empty."; continue; }
-        read -rsp "$label password (again): " p2; echo
-        [[ "$p1" == "$p2" ]] && break
+        read -rsp "$__label password: " __p1; echo
+        [[ -z "$__p1" ]] && { warn "Password cannot be empty."; continue; }
+        read -rsp "$__label password (again): " __p2; echo
+        [[ "$__p1" == "$__p2" ]] && break
         warn "Passwords did not match — try again."
     done
-    printf -v "$__var" '%s' "$p1"
+    printf -v "$__var" '%s' "$__p1"
 }
 
 # ---------------------------------------------------------------------------
@@ -409,44 +424,78 @@ choose_keymap() {
     done
 }
 
-# Deterministic layout (no prompts, matches README's swap/root/home form): swap =
-# total RAM, root = 10% of the disk capped at 100 GiB, /home = the rest. Shown in
-# the wipe confirmation before anything is written.
+# Prompted layout (matches README's swap/root/home form). Both prompts carry the
+# old automatic values as defaults, so pressing Enter twice reproduces the
+# previous behaviour exactly: swap = total RAM, root = 10% of the disk capped at
+# 100 GiB, /home = the rest. Shown again in the wipe confirmation before anything
+# is written.
 configure_layout() {
-    local dsize swap_g root_g
+    local dsize ram_g swap_g root_g def_root avail ans=""
 
     dsize="$(disk_gib "$DISK")"          # whole GiB (floored)
+    ram_g="$(ram_gib)"
 
     # Fixed 1 GiB ESP: holds all four UKIs (~50-120 MiB each) with headroom, and
     # more is wasteful for the personal-workstation case this installer targets.
     EFI_SIZE="$DEF_EFI_SIZE"
 
-    # swap = total RAM (whole GiB, rounded up), so a hibernation image would fit.
-    # No resume= is set, though: hibernation is out of scope (swap is inside LUKS).
-    swap_g="$(ram_gib)"
-    if (( swap_g >= 1 )); then SWAP_SIZE="${swap_g}G"; else SWAP_SIZE=""; fi
+    echo
+    info "Disk: $DISK (~${dsize} GiB), RAM: ${ram_g} GiB. EFI is fixed at $EFI_SIZE."
 
-    # root = 10% of the disk, capped at 100 GiB (a 10 TB disk still gets 100 GiB).
-    root_g=$(( dsize / 10 ))
-    (( root_g > 100 )) && root_g=100
-    (( root_g < 1 ))   && root_g=1       # guard tiny / undetected disks
-    ROOT_SIZE="${root_g}G"
+    # --- swap (optional) ---
+    # Default = total RAM, so a hibernation image would fit. No resume= is set,
+    # though: hibernation is out of scope (swap is inside LUKS).
+    while :; do
+        prompt_default ans "  Swap in GiB (0 or 'none' for no swap)" "$ram_g"
+        case "${ans,,}" in
+            none|no|off) swap_g=0; break ;;
+        esac
+        if swap_g="$(size_to_gib "$ans")"; then break; fi
+        warn "Enter a whole number of GiB (e.g. 8 or 8G), or 'none'."
+    done
+    if (( swap_g > 0 )); then SWAP_SIZE="${swap_g}G"; else SWAP_SIZE=""; fi
 
-    # /home takes whatever remains.
-    SEPARATE_HOME="yes"
+    # --- root ---
+    # Default = 10% of the disk capped at 100 GiB (a 10 TB disk still gets 100).
+    def_root=$(( dsize / 10 ))
+    (( def_root > 100 )) && def_root=100
+    (( def_root < 1 ))   && def_root=1   # guard tiny / undetected disks
+
+    # What is left for root + /home once the ESP and swap are taken.
+    avail=$(( dsize - 1 - swap_g ))
+    if (( dsize > 0 && avail < 2 )); then
+        die "EFI 1 GiB + swap ${swap_g} GiB leaves ${avail} GiB on a ~${dsize} GiB disk — no room for root. Use less swap or a larger disk."
+    fi
+    (( dsize > 0 && def_root > avail - 1 )) && def_root=$(( avail - 1 ))
+
+    while :; do
+        prompt_default ans "  Root in GiB ('max' = rest of the disk, no separate /home)" "$def_root"
+        case "${ans,,}" in
+            max|rest|all)
+                ROOT_SIZE=""; SEPARATE_HOME="no"; root_g="$avail"; break ;;
+        esac
+        if root_g="$(size_to_gib "$ans")"; then
+            if (( root_g < 1 )); then
+                warn "root must be at least 1 GiB."
+            elif (( dsize > 0 && root_g + 1 > avail )); then
+                # Leave >=1 GiB for /home, or lvcreate -l 100%FREE gets nothing.
+                warn "root ${root_g} GiB leaves no room for /home (${avail} GiB available after EFI + swap). Use a smaller size, or 'max' to skip /home."
+            else
+                ROOT_SIZE="${root_g}G"; SEPARATE_HOME="yes"; break
+            fi
+            continue
+        fi
+        warn "Enter a whole number of GiB (e.g. 80 or 80G), or 'max'."
+    done
 
     echo
-    info "Disk: $DISK (~${dsize} GiB) — automatic layout:"
-    printf '    EFI   %s\n    swap  %s   (= RAM)\n    root  %s   (10%% of disk, capped at 100G)\n    home  rest of the disk\n' \
-        "$EFI_SIZE" "${SWAP_SIZE:-none}" "$ROOT_SIZE"
+    info "Layout:"
+    printf '    EFI   %s\n    swap  %s\n    root  %s\n    home  %s\n' \
+        "$EFI_SIZE" "${SWAP_SIZE:-none}" "${ROOT_SIZE:-rest of the disk}" \
+        "$( [[ "$SEPARATE_HOME" == "yes" ]] && echo "rest of the disk" || echo "none (inside /)" )"
 
-    # Fit check: EFI + swap + root must leave at least ~1 GiB for /home.
-    local fixed=$(( 1 + swap_g + root_g ))
-    if (( dsize > 0 && fixed + 1 > dsize )); then
-        die "Auto layout (EFI 1 + swap ${swap_g} + root ${root_g} = ${fixed} GiB) leaves no room for /home on a ~${dsize} GiB disk. Use a larger disk."
-    fi
     if (( root_g < 15 )); then
-        warn "root is only ${root_g} GiB (10% of a small disk) — the base install fits but may fill quickly."
+        warn "root is only ${root_g} GiB — the base install fits but may fill quickly."
     fi
 }
 
@@ -890,8 +939,9 @@ if ! bootctl --esp-path=/boot/efi install; then
 fi
 [ -f /boot/efi/EFI/systemd/systemd-bootx64.efi ] \
     || { echo "systemd-boot loader was not installed to the ESP — aborting." >&2; exit 1; }
-# The non-zero timeout is deliberate: with `timeout 0` the menu is only reachable
-# by holding Space, making the fallback UKIs unusable exactly when they're needed.
+# timeout 0 boots straight into the default entry. The menu, and with it the
+# fallback UKIs, is still reachable by holding Space during firmware handoff -
+# raise this to 3 if you would rather not depend on catching that window.
 cat > /boot/efi/loader/loader.conf <<LOADER
 default         arch-linux.efi
 timeout         0
