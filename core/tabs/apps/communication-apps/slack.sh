@@ -1,5 +1,8 @@
 #!/bin/sh -e
 
+# menu: Slack
+# desc: Slack team messaging
+
 . "$COMMON_SCRIPT"
 
 install_slack() {

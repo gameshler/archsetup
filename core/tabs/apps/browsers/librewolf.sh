@@ -1,5 +1,8 @@
 #!/bin/sh -e
 
+# menu: LibreWolf
+# desc: Privacy-hardened Firefox fork
+
 . "$COMMON_SCRIPT"
 
 install_librewolf() {

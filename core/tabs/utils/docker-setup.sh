@@ -1,5 +1,8 @@
 #!/bin/sh -e
 
+# menu: Docker
+# desc: Docker engine, compose and the docker group
+
 . "$COMMON_SCRIPT"
 
 choose_installation() {

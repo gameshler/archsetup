@@ -1,5 +1,8 @@
 #!/bin/sh -e
 
+# menu: Google Chrome
+# desc: Google Chrome web browser
+
 . "$COMMON_SCRIPT"
 
 install_chrome() {
