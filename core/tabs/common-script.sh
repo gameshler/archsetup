@@ -142,6 +142,24 @@ is_service_active() {
     esac
 }
 
+# lib32-* packages live only in the multilib repository, which Arch ships
+# disabled. Any tab that installs one has to turn it on first or pacman fails
+# with "target not found". system/setup.sh enables it, but system/gpu-driver.sh
+# can be run on its own long before setup.sh ever is.
+enable_multilib() {
+    if grep -qE '^\s*\[multilib\]' /etc/pacman.conf; then
+        return 0
+    fi
+
+    printf "%b\n" "Enabling the multilib repository (needed for lib32-* packages)..."
+    sudo sed -i -E '/^\s*#?\s*\[multilib\]/,/^\s*\[.*\]/ {
+    s/^\s*#\s*(\[multilib\])/\1/
+    s/^\s*#\s*(Include\s*=\s*\/etc\/pacman\.d\/mirrorlist)/\1/
+}' /etc/pacman.conf
+
+    sudo "$PACKAGER" -Sy --noconfirm
+}
+
 # The SSH port is asked for once and remembered here rather than hardcoded in
 # core/main.sh, so the number is not published in this repo. It is stored under
 # $HOME and not under INSTALL_DIR because core/main.sh deletes INSTALL_DIR when

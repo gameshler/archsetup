@@ -1,5 +1,8 @@
 #!/bin/sh -e
 
+# menu: GPU Drivers
+# desc: Detect the GPU and install matching drivers
+
 . "$COMMON_SCRIPT"
 
 install_lact() {
@@ -16,12 +19,20 @@ detect_gpu() {
 
     if echo "$gpu_lines" | grep -qi nvidia; then
         gpu_vendor="nvidia"
-    elif echo "$gpu_lines" | grep -Eqi 'amd|ati|advanced micro devices'; then
+    # The word boundaries are load-bearing. Bare 'ati' matched the "ati" inside
+    # "VGA compatible controller", which appears in every lspci display line,
+    # so every non-NVIDIA GPU was detected as AMD and Intel machines were sent
+    # AMD drivers. \bati\b does not match "compatible" but does match "[AMD/ATI]".
+    elif echo "$gpu_lines" | grep -Eqi '\bamd\b|\bati\b|advanced micro devices'; then
         gpu_vendor="amd"
+    # UHD has to be tested before the plain Intel match. A real device reports
+    # "Intel Corporation UHD Graphics", which satisfies both, so with Intel
+    # checked first this branch was unreachable for every card it was written
+    # for and UHD machines silently took the generic Intel path.
+    elif echo "$gpu_lines" | grep -qi uhd; then
+        gpu_vendor="intel-uhd"
     elif echo "$gpu_lines" | grep -qi intel; then
         gpu_vendor="intel"
-    elif echo "$gpu_lines" | grep -Eqi 'intel|intel corporation|UHD'; then
-        gpu_vendor="intel-uhd"
     else
         echo "Unsupported GPU:"
         echo "$gpu_lines"
@@ -50,7 +61,11 @@ install_gpu_drivers() {
         ;;
     intel-uhd)
         echo "Installing Intel UHD drivers"
-        install_packages libva-intel-driver libvdpau-va-gl lib32-vulkan-intel vulkan-intel libva-intel-driver libva-utils lib32-mesa
+        # lib32-vulkan-intel and lib32-mesa are multilib-only, and this tab can
+        # run before system/setup.sh has enabled that repository.
+        enable_multilib
+        # libva-intel-driver was listed twice in this line.
+        install_packages libva-intel-driver libvdpau-va-gl lib32-vulkan-intel vulkan-intel libva-utils lib32-mesa
         ;;
     esac
 }
