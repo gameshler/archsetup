@@ -1,5 +1,8 @@
 #!/bin/sh -e
 
+# menu: ufw
+# desc: Uncomplicated Firewall and sysctl hardening
+
 . "$COMMON_SCRIPT"
 
 install_pkg() {
@@ -13,6 +16,10 @@ install_pkg() {
 }
 
 configure_ufw() {
+    # Reads the port security/ssh.sh chose, and only asks if it was never set,
+    # so the firewall can never open a port sshd is not listening on.
+    resolve_ssh_port
+
     printf "%b\n" "Recommended Firewall Rules"
 
     printf "%b\n" "Limiting Port $SSH_PORT/tcp"
