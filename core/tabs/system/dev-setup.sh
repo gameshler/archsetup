@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # menu: Dev Environment
-# desc: Node via nvm, Bun, Claude Code and Git dotfiles
+# desc: Node via nvm, Bun and Git dotfiles
 
 . "$COMMON_SCRIPT"
 
@@ -13,7 +13,6 @@ export BUN_INSTALL="$HOME/.bun"
 # the installers actually drop instead.
 nvm_installed() { [ -s "$NVM_DIR/nvm.sh" ]; }
 bun_installed() { [ -x "$BUN_INSTALL/bin/bun" ] || command_exists bun; }
-claude_installed() { [ -x "$HOME/.local/bin/claude" ] || command_exists claude; }
 
 load_nvm() {
     # shellcheck source=/dev/null
@@ -43,13 +42,6 @@ install_pkgs() {
     else
         printf "%b\n" "Installing bun..."
         curl -fsSL https://bun.com/install | bash
-    fi
-
-    if claude_installed; then
-        printf "%b\n" "Claude Code is already installed."
-    else
-        printf "%b\n" "Installing Claude Code..."
-        curl -fsSL https://claude.ai/install.sh | bash
     fi
 }
 
@@ -83,7 +75,7 @@ main() {
         fi
     done
 
-    printf "%b\n" "Open a new shell (or run 'exec bash') to pick up nvm, bun and claude."
+    printf "%b\n" "Open a new shell (or run 'exec bash') to pick up nvm and bun."
 }
 
 main

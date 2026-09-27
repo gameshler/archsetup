@@ -262,9 +262,9 @@ trim() {
 # PATH AND TOOL ACTIVATION
 #######################################################
 # This file is a symlink that bash-setup.sh recreates from the repo. Installers
-# such as nvm, bun and the Claude CLI append their activation lines to
-# ~/.bashrc, and those appended lines are thrown away the moment the symlink is
-# relinked - which is why tools "disappear" after running bash-setup.sh.
+# such as nvm and bun append their activation lines to ~/.bashrc, and those
+# appended lines are thrown away the moment the symlink is relinked - which is
+# why tools "disappear" after running bash-setup.sh.
 # Activating them here instead makes them survive. Put your own additions in
 # ~/.bashrc.d/*.sh, which is sourced at the bottom and is never overwritten.
 
