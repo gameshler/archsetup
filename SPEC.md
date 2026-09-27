@@ -295,8 +295,11 @@ category directory. No registration step exists.
 Notable task scripts beyond simple installers:
 
 - `system/setup.sh` — the heavy first-run configurator: `pacman.conf` tweaks
-  (Color, ParallelDownloads, multilib, ILoveCandy), a 54-country reflector
-  mirror menu, a broad package set, and MangoHud config (`system/setup.sh`).
+  (Color, ParallelDownloads, multilib, ILoveCandy), reflector mirror ranking
+  within a prompted country (falling back to the worldwide pool when that
+  country yields fewer than `MIN_MIRRORS`), a broad package set, and MangoHud
+  config (`system/setup.sh`). Ranking runs *before* the package set, so the
+  installs it performs actually use the ranked list.
 - `security/nftables.sh` / `security/ufw.sh` — mutually exclusive firewall
   choices; both also write `/etc/sysctl.d/90-network.conf` hardening.
 - `utils/auto-mount.sh` — self-contained secondary-drive formatter/mounter (see
@@ -367,6 +370,7 @@ guaranteed when the script is launched through the Stage-2 chain
 | `COMMON_SCRIPT` | `core/main.sh:8` | `$TABS_DIR/common-script.sh`. |
 | `SSH_PORT` | prompted by `security/ssh.sh`, persisted to `$SSH_PORT_FILE` | Consumed by `security/ssh.sh`, `security/nftables.sh`, `security/ufw.sh`. Set it in the environment to run those tabs unattended. |
 | `SSH_PORT_FILE` | `common-script.sh` | `${XDG_CONFIG_HOME:-$HOME/.config}/archsetup/ssh-port`; outside `INSTALL_DIR` so the chosen port survives cleanup. |
+| `MIRROR_COUNTRY` | prompted by `system/setup.sh` (geo-IP guess as the default) | ISO country code reflector ranks within, baked into `/etc/xdg/reflector/reflector.conf` for the boot run. Set it in the environment to run that tab unattended; empty means rank worldwide. |
 | `PACKAGER`, `INIT_MANAGER`, `HELPER` | set on sourcing `common-script.sh` | package manager, init tool, AUR helper. |
 
 ### 8.4 Privilege
