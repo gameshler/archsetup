@@ -7,37 +7,212 @@
 
 set -euo pipefail
 
-# Rank mirrors worldwide by measured download rate, with no country filter.
+# Rank mirrors by measured download rate, preferring the country the user picks
+# and widening to the worldwide pool only when that country cannot supply enough.
 #
-# Filtering by country is what starved this box of mirrors: a small country can
-# publish only a handful, and the Arch wiki says so outright — "It is typically
-# not a good idea to filter by country; there are only a finite number of
-# mirrors in a single country. Network throughput is only partly determined by
-# geographical distance." So the pool is every HTTPS mirror synced recently,
-# narrowed by --latest, then rate-tested by --fastest.
+# An earlier revision dropped the country filter entirely, on the wiki's advice
+# that it is "typically not a good idea to filter by country; there are only a
+# finite number of mirrors in a single country." That advice is about the
+# starvation case, and taking it as a blanket rule under-delivered badly on a
+# fibre line. Two reasons:
+#
+#   - --latest picks the most recently *synced* mirrors, and sync recency says
+#     nothing about where a mirror is. Worldwide, the candidate pool handed to
+#     --fastest is effectively a random draw across continents.
+#   - --fastest rate-tests each candidate with one small file, so it measures
+#     mostly TCP slow start rather than sustained throughput. It will happily
+#     rank a distant mirror above a local one that would saturate the link.
+#
+# So: rank inside a country, and treat the wiki's warning as the fallback path
+# below rather than as a reason never to filter.
 #
 # reflector.service re-runs this on every boot (see enable_reflector), so the
 # list follows whatever is actually fast from here today.
-readonly -a REFLECTOR_ARGS=(
+readonly -a REFLECTOR_BASE_ARGS=(
     --protocol https   # HTTPS only
     --age 12           # synced within the last 12 hours
-    --latest 40        # 40 most recently synced, worldwide
+    --latest 40        # 40 most recently synced, within the pool below
     --fastest 10       # rate-test those, keep the 10 fastest
     --sort rate
 )
 
+# Below this many Server lines the list is too thin to keep: pacman has no
+# alternate to fall back on when one mirror drops out mid-transaction. This is
+# the "finite number of mirrors in a single country" case the wiki warns about.
+readonly MIN_MIRRORS=5
+
+# Set from the environment to skip the prompt: MIRROR_COUNTRY=DE bash setup.sh
+MIRROR_COUNTRY="${MIRROR_COUNTRY:-}"
+declare -a REFLECTOR_ARGS=()
+
+build_reflector_args() {
+    REFLECTOR_ARGS=("${REFLECTOR_BASE_ARGS[@]}")
+    if [[ -n "$MIRROR_COUNTRY" ]]; then
+        REFLECTOR_ARGS=(--country "$MIRROR_COUNTRY" "${REFLECTOR_ARGS[@]}")
+    fi
+}
+
+# Print the ISO code for a country name or code, or nothing if it is not one
+# reflector knows. $2 is the `reflector --list-countries` table:
+#
+#     Country                  Code Count
+#     ------------------------ ---- -----
+#     United States              US   120
+#
+# The name is every field but the last two, so it survives "United States" and
+# "Bosnia and Herzegovina" alike. Resolving to the code matters beyond tidiness:
+# reflector.conf is split on whitespace, so a name would reach the boot service
+# as two broken arguments.
+resolve_country() {
+    awk -v want="$1" '
+        BEGIN { want = tolower(want) }
+        NR > 2 && NF >= 3 {
+            code = $(NF - 1)
+            name = $1
+            for (i = 2; i <= NF - 2; i++) name = name " " $i
+            if (want == tolower(code) || want == tolower(name)) {
+                print toupper(code)
+                exit
+            }
+        }
+    ' <<<"$2"
+}
+
+# Ask which country to rank in, defaulting to a geo-IP guess. An empty answer is
+# a deliberate "rank worldwide", not an error.
+choose_country() {
+    local detected="" answer="" resolved="" list="" at_eof=0
+
+    if [[ -n "$MIRROR_COUNTRY" ]]; then
+        printf "%b\n" "Using mirror country '$MIRROR_COUNTRY' from the environment."
+        return 0
+    fi
+
+    # Best effort. Without the table we can still accept a bare ISO code below.
+    list="$(reflector --list-countries 2>/dev/null)" || list=""
+
+    # '|| detected=""' is required: curl -f exits non-zero on 429/5xx and, under
+    # pipefail, would fail this assignment and abort the whole tab.
+    detected="$(curl -fsSL --max-time 5 https://ipapi.co/country 2>/dev/null | tr -d '[:space:]')" || detected=""
+    # Geo-IP can return an HTML error body; only a real ISO code may reach reflector.
+    [[ "$detected" =~ ^[A-Za-z][A-Za-z]$ ]] || detected=""
+
+    # Ask on the terminal even when this tab's stdin is redirected. Testing
+    # [ -r /dev/tty ] is not enough: the node is readable but opening it fails
+    # when there is no controlling terminal, so open it for real.
+    if (: </dev/tty) 2>/dev/null; then
+        exec 3</dev/tty
+    else
+        exec 3<&0
+    fi
+
+    printf "%b\n" "Which country should mirrors be ranked in?"
+    printf "%b\n" "Ranking locally is usually far faster than the worldwide pool, which"
+    printf "%b\n" "is why this is asked. Press Enter with no answer to rank worldwide."
+
+    while :; do
+        if [[ -n "$detected" ]]; then
+            printf "%b" "Mirror country [$detected]: "
+        else
+            printf "%b" "Mirror country (code or name, empty for worldwide): "
+        fi
+
+        if read -r answer <&3; then
+            answer="${answer:-$detected}"
+        else
+            # Nothing more is coming, so re-prompting would never terminate.
+            answer="$detected"
+            at_eof=1
+        fi
+
+        [[ -n "$answer" ]] || break
+
+        if [[ -n "$list" ]]; then
+            resolved="$(resolve_country "$answer" "$list")"
+        elif [[ "$answer" =~ ^[A-Za-z][A-Za-z]$ ]]; then
+            # No table to check against, so only a bare ISO code is safe to pass
+            # on; a wrong one still lands in the MIN_MIRRORS fallback below.
+            resolved="${answer^^}"
+        else
+            resolved=""
+        fi
+
+        if [[ -n "$resolved" ]]; then
+            MIRROR_COUNTRY="$resolved"
+            break
+        fi
+
+        if [[ -n "$list" ]]; then
+            printf "%b\n" "reflector lists no country matching '$answer'. Run 'reflector --list-countries' to see the valid names and codes."
+        else
+            printf "%b\n" "Could not fetch the country list; enter a two-letter ISO code such as DE."
+        fi
+
+        if ((at_eof)); then
+            printf "%b\n" "No terminal to re-ask on; ranking worldwide instead."
+            break
+        fi
+    done
+
+    exec 3<&-
+}
+
+# Rank into $1, returning non-zero unless it really holds MIN_MIRRORS servers.
+# reflector can exit 0 and still leave an empty or near-empty file: an
+# over-narrow --country, transient mirror JSON, or every candidate timing out
+# all look like success from its exit status alone.
+run_reflector() {
+    local out="$1" count=0
+
+    build_reflector_args
+    sudo reflector --verbose "${REFLECTOR_ARGS[@]}" --save "$out" || return 1
+    # '|| true': grep -c exits 1 on zero matches, which is a valid answer here.
+    count="$(grep -c '^[[:space:]]*Server' "$out" || true)"
+    [[ "$count" -ge "$MIN_MIRRORS" ]]
+}
+
 rank_mirrors() {
-    printf "%b\n" "Ranking mirrors worldwide by download rate (no country filter)..."
+    local tmp
 
     # Timestamped, so a second run cannot overwrite the pristine backup with an
     # already-reflector-generated list.
     sudo cp /etc/pacman.d/mirrorlist "/etc/pacman.d/mirrorlist.bak.$(date +%Y%m%d-%H%M%S)"
-    
-    sudo reflector --verbose "${REFLECTOR_ARGS[@]}" --save "/etc/pacman.d/mirrorlist" || printf "%b\n" "reflector produced no usable mirrors; keeping the existing mirrorlist."
-        
+
+    tmp="$(mktemp)"
+
+    if [[ -n "$MIRROR_COUNTRY" ]]; then
+        printf "%b\n" "Ranking mirrors in $MIRROR_COUNTRY by download rate..."
+        if ! run_reflector "$tmp"; then
+            printf "%b\n" "$MIRROR_COUNTRY yielded fewer than $MIN_MIRRORS usable mirrors; widening to the worldwide pool."
+            # Cleared rather than just ignored for this one run: enable_reflector
+            # runs next off the same variable, so leaving it set would re-narrow
+            # the list on every boot to the country that just came up short.
+            MIRROR_COUNTRY=""
+        fi
+    fi
+
+    if [[ -z "$MIRROR_COUNTRY" ]]; then
+        printf "%b\n" "Ranking mirrors worldwide by download rate..."
+        if ! run_reflector "$tmp"; then
+            printf "%b\n" "reflector produced no usable mirrors; keeping the existing mirrorlist."
+            rm -f "$tmp"
+            return 0
+        fi
+    fi
+
+    sudo install -m 644 "$tmp" /etc/pacman.d/mirrorlist
+    printf "%b\n" "Mirrorlist updated:"
+    # '|| true': head closes the pipe early, and under pipefail grep's resulting
+    # SIGPIPE would abort the tab right after a successful install.
+    grep '^[[:space:]]*Server' "$tmp" | head -5 || true
+    rm -f "$tmp"
 }
 
 enable_reflector() {
+    # Rebuilt here so the boot service ranks over the pool that actually worked
+    # above, including the case where rank_mirrors had to widen to worldwide.
+    build_reflector_args
+
     sudo mkdir -p /etc/xdg/reflector
     # reflector.service reads its options from this file. --save must be in it,
     # or the boot run would print to stdout and never touch the mirrorlist.
@@ -54,7 +229,7 @@ enable_reflector() {
     sudo systemctl enable reflector.service
     sudo systemctl disable reflector.timer 2>/dev/null || true
 
-    printf "%b\n" "reflector.service enabled — mirrors are re-ranked on every boot."
+    printf "%b\n" "reflector.service enabled — mirrors are re-ranked on every boot${MIRROR_COUNTRY:+ within $MIRROR_COUNTRY}."
 }
 
 main() {
@@ -79,14 +254,22 @@ main() {
 
     sudo "$PACKAGER" -Syyu --noconfirm
 
-    install_packages \
-        libreoffice-fresh vlc curl flatpak fastfetch p7zip unzip unrar tar rsync \
-        exfat-utils fuse-exfat flac jdk-openjdk gimp \
-        base-devel mangohud lib32-mangohud \
-        htop steam reflector python rust git
+    # Pulled ahead of the package set below, not listed with it. Ranking mirrors
+    # after every download has finished cannot speed up a single one of them,
+    # which is what this tab used to do: the ~30 packages came down over the
+    # stock mirrorlist and reflector only ran once there was nothing left to
+    # fetch. reflector supplies the ranking, curl the geo-IP country guess.
+    install_packages reflector curl
 
+    choose_country
     rank_mirrors
     enable_reflector
+
+    install_packages \
+        libreoffice-fresh vlc flatpak fastfetch p7zip unzip unrar tar rsync \
+        exfat-utils fuse-exfat flac jdk-openjdk gimp \
+        base-devel mangohud lib32-mangohud \
+        htop steam python rust git
 
     # mangohud config
     printf "%b\n" "Configuring MangoHud"
