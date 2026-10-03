@@ -71,6 +71,19 @@ make_dwm() {
         }
     fi
 
+    # The bar is a Quickshell config under config/quickshell/, and it exists
+    # only on the dwm repo's default branch once the Quickshell work has landed
+    # there. Installing a clone without it is worse than getting an old bar:
+    # config.h sets usealtbar=1, so dwm draws no bar of its own, and autostart[]
+    # starts nothing to take its place. The desktop comes up with no bar at all.
+    # Refuse rather than hand back a bare screen and no clue why.
+    if [ ! -f "$DWM_DIR/config/quickshell/shell.qml" ]; then
+        printf "%b\n" "$DWM_DIR has no config/quickshell/ - this clone predates the bar." >&2
+        printf "%b\n" "Installing it would leave you with no bar at all (config.h sets usealtbar=1)." >&2
+        printf "%b\n" "Land the Quickshell branch on the dwm repo's default branch, then re-run." >&2
+        exit 1
+    fi
+
     # This tab used to run `sudo make clean install`, which built as root and
     # left the object files and the binary owned by root. An unprivileged build
     # then cannot overwrite them. Clearing as root once fixes an existing
@@ -86,8 +99,10 @@ make_dwm() {
     mkdir -p "$HOME/.config" "$HOME/.local/bin"
 
     # install places the binary, the man page and the desktop entry, and copies
-    # config/* to ~/.config, scripts/* to ~/.local/bin and .xinitrc to $HOME.
-    # Copying any of that again here would only risk the two going out of sync.
+    # config/* to ~/.config, scripts/* to ~/.local/bin, and both .xinitrc and
+    # .xprofile to $HOME. Those last two are written only when absent, so an
+    # .xprofile left over from another setup is kept as it is. Copying any of
+    # this again here would only risk the two going out of sync.
     printf "%b\n" "Installing dwm, configs and scripts..."
     sudo make -C "$DWM_DIR" install
 }
