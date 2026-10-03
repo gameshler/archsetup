@@ -29,19 +29,25 @@ check_preconditions() {
 # xorg-xprop reads dwm's state, wmctrl handles tag and window clicks, and
 # xdotool tracks the focused window. Dropping any of those leaves the bar either
 # missing or unable to respond to a click.
+#
+# xorg-xrdb is the one whose absence is invisible. scripts/quickshell-launch.sh
+# translates Xft.dpi into QT_FONT_DPI only when xrdb is on PATH, so without it a
+# HiDPI screen scales dwm's font and rofi while the bar stays at 1x, and nothing
+# reports why. inter-font is the bar's UI face and pacman-contrib provides
+# checkupdates, which the update pill prefers over an offline `pacman -Qu`.
 setup_dwm() {
     install_packages \
         base-devel git \
         libx11 libxinerama libxft libxcb imlib2 \
-        xorg-xprop xorg-xrandr xorg-xsetroot xorg-xset \
+        xorg-xprop xorg-xrandr xorg-xsetroot xorg-xset xorg-xrdb \
         quickshell wmctrl xdotool \
         ghostty rofi picom dunst feh flameshot dex mate-polkit \
         xdg-utils xdg-user-dirs xdg-desktop-portal-gtk \
-        ttf-firacode-nerd noto-fonts-emoji \
+        ttf-firacode-nerd inter-font noto-fonts-emoji \
         networkmanager network-manager-applet \
         bluez bluez-utils \
         pipewire pipewire-pulse pavucontrol \
-        papirus-icon-theme \
+        papirus-icon-theme pacman-contrib \
         thunar thunar-archive-plugin tumbler gvfs xarchiver \
         xclip unzip nwg-look alsa-utils gnome-keyring flatpak \
         xscreensaver tldr tmux
