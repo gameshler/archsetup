@@ -322,9 +322,9 @@ Notable task scripts beyond simple installers:
 
 ### 8.1 Interpreter (mixed, by design)
 
-The census at `3e0ceae`: 23 task scripts are `#!/bin/sh -e` (POSIX), 10 files are
-`#!/usr/bin/env bash` + `set -euo pipefail`, and 1 (`apps/dwm/dwm-setup.sh`) is
-bare `#!/bin/sh`.
+The census: 24 task scripts are `#!/bin/sh -e` (POSIX) and 11 files are
+`#!/usr/bin/env bash` + `set -euo pipefail`. No script is left on a bare
+`#!/bin/sh`; `apps/dwm/dwm-setup.sh` was the last one.
 
 Convention:
 
@@ -363,7 +363,7 @@ guaranteed when the script is launched through the Stage-2 chain
 
 | Variable | Set by | Value / use |
 | --- | --- | --- |
-| `TEMP_DIR` | `start.sh:6` | Scratch dir. Used by `neovim.sh`, `bash-setup.sh`, `dwm-setup.sh` for clones/downloads. |
+| `TEMP_DIR` | `start.sh:6` | Scratch dir. Used by `neovim.sh` and `bash-setup.sh` for clones/downloads. |
 | `INSTALL_DIR` | `start.sh:7` | `$HOME/Downloads/archsetup`; repo root at runtime. |
 | `FILES` | `core/main.sh:6` | `$INSTALL_DIR/files` (dotfile source). |
 | `TABS_DIR` | `core/main.sh:7` | `$INSTALL_DIR/core/tabs`. |
@@ -416,7 +416,7 @@ Scripts must stop on unsupported or ambiguous states rather than proceed blindly
 | `check_flatpak` | Installs Flatpak and adds the Flathub remote if missing. | `install_packages --flatpak` |
 | `install_packages [--official\|--aur\|--flatpak] pkgs…` | Installs via pacman (default), the AUR helper, or Flatpak. | most task scripts |
 | `check_init_manager` | Sets `INIT_MANAGER` from `systemctl`/`rc-service`/`sv`. | (auto, on source) |
-| `is_service_active` | Init-agnostic service-active check. | `apps/dwm/dwm-setup.sh:109` |
+| `is_service_active` | Init-agnostic service-active check. | `apps/dwm/dwm-setup.sh:112` |
 
 The bottom of the file (`core/tabs/common-script.sh:145`) unconditionally runs
 `check_package_manager "pacman"` and `check_init_manager …`, which is why
@@ -433,10 +433,13 @@ sourcing it asserts an Arch/pacman host.
 - `system/dev-setup.sh` — copies `files/.gitignore` and `files/.gitconfig` to
   `$HOME` (`system/dev-setup.sh:30`).
 
-Other config-writing scripts (`dwm-setup.sh`, `ghostty-setup.sh`,
-`rofi-setup.sh`) fetch their configs from `github.com/gameshler/dwm` over `curl`
-rather than from `files/`. There is no configuration file for archsetup itself
-and no automation/config interface — every run is interactive.
+`ghostty-setup.sh` and `rofi-setup.sh` fetch their configs from
+`github.com/gameshler/dwm` over `curl` rather than from `files/`.
+`dwm-setup.sh` clones that repo instead and leaves the placing to its
+`make install`, which copies `config/*` into `~/.config` and `scripts/*` into
+`~/.local/bin` as the invoking user (`SUDO_USER`). There is no configuration
+file for archsetup itself and no automation/config interface — every run is
+interactive.
 
 The one machine-written record is the **install record**
 (`/var/log/archsetup-install.log`, mode 600, no secrets, `install.sh:931`),

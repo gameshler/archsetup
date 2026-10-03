@@ -1,152 +1,310 @@
-#!/bin/sh
+#!/bin/sh -e
 
 # menu: dwm
 # desc: Build and install the dwm window manager
 
+# core/main.sh launches tabs with `bash "$path"`, and that discards the -e in
+# the shebang above - the flag only applies when the file is executed directly.
+# Setting it here means a failed clone, build or install stops the tab either
+# way, instead of running on and reporting success.
+set -e
+
 . "$COMMON_SCRIPT"
 
+DWM_REPO="https://github.com/gameshler/dwm.git"
 DWM_DIR="$HOME/.local/share/dwm"
 
+check_preconditions() {
+    # The repo's install target reads SUDO_USER to decide whose ~/.config and
+    # ~/.local/bin to write to. Running the whole tab as root leaves that unset,
+    # and every config lands in /root instead of the account that will use dwm.
+    if [ "$(id -u)" -eq 0 ]; then
+        printf "%b\n" "Run this tab as your normal user - it calls sudo itself." >&2
+        exit 1
+    fi
+}
+
+# Both of these read the kernel's view through /sys rather than asking a tool,
+# because they have to answer before bluez or NetworkManager is installed.
+#
+# /sys/class/bluetooth and /sys/class/net exist whenever the subsystem is built
+# into the kernel and are empty when no device is attached, so the test is for
+# contents and not for the directory. An unmatched glob stays literal in POSIX
+# sh, which is why each loop tests the entry with -e before believing it.
+has_bluetooth_adapter() {
+    for dev in /sys/class/bluetooth/*; do
+        if [ -e "$dev" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+has_wifi_device() {
+    for dev in /sys/class/net/*/wireless; do
+        if [ -e "$dev" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Everything dwm itself, the keybindings in config.h and the bar actually call.
+# The bar is a Quickshell config now, not polybar: quickshell renders it,
+# xorg-xprop reads dwm's state, wmctrl handles tag and window clicks, and
+# xdotool tracks the focused window. Dropping any of those leaves the bar either
+# missing or unable to respond to a click.
+#
+# xorg-xrdb is the one whose absence is invisible. scripts/quickshell-launch.sh
+# translates Xft.dpi into QT_FONT_DPI only when xrdb is on PATH, so without it a
+# HiDPI screen scales dwm's font and rofi while the bar stays at 1x, and nothing
+# reports why. inter-font is the bar's UI face and pacman-contrib provides
+# checkupdates, which the update pill prefers over an offline `pacman -Qu`.
 setup_dwm() {
     install_packages \
-        base-devel libx11 libxinerama libxft imlib2 libxcb git unzip flameshot nwg-look \
-        feh mate-polkit alsa-utils ghostty rofi xclip xarchiver thunar tumbler tldr gvfs \
-        thunar-archive-plugin dunst dex xscreensaver xorg-xprop xorg-xrandr xorg-xsetroot \
-        xorg-xset polybar picom xdg-user-dirs xdg-desktop-portal-gtk pipewire pavucontrol \
-        gnome-keyring flatpak networkmanager network-manager-applet noto-fonts-emoji pipewire-pulse tmux
+        base-devel git \
+        libx11 libxinerama libxft libxcb imlib2 \
+        xorg-xprop xorg-xrandr xorg-xsetroot xorg-xset xorg-xrdb \
+        quickshell wmctrl xdotool \
+        ghostty rofi picom dunst feh flameshot dex mate-polkit \
+        xdg-utils xdg-user-dirs xdg-desktop-portal-gtk \
+        ttf-firacode-nerd inter-font noto-fonts-emoji \
+        networkmanager network-manager-applet \
+        pipewire pipewire-pulse pavucontrol \
+        papirus-icon-theme pacman-contrib \
+        thunar thunar-archive-plugin tumbler gvfs xarchiver \
+        xclip unzip nwg-look alsa-utils gnome-keyring flatpak \
+        xscreensaver tldr tmux
+
+    # NetworkManager stays in the list above unconditionally: it manages wired
+    # connections as well as wireless, and the bar's pill reads `nmcli device`
+    # either way, with an ethernet icon of its own. There is nothing in this tab
+    # that only a wireless machine needs.
+    #
+    # bluez is different. On a desktop with no adapter it is two dead packages
+    # and a service with nothing to manage, so install it only when the kernel
+    # reports an adapter.
+    if has_bluetooth_adapter; then
+        install_packages bluez bluez-utils
+    else
+        printf "%b\n" "No bluetooth adapter detected - skipping bluez."
+        printf "%b\n" "If you add one later: sudo pacman -S --needed bluez bluez-utils"
+    fi
 }
 
 make_dwm() {
-    mkdir -p "$HOME/.local/share/"
+    mkdir -p "$(dirname "$DWM_DIR")"
+
     if [ ! -d "$DWM_DIR" ]; then
-        printf "%b\n" "DWM not found, cloning repository..."
-        git clone https://github.com/gameshler/dwm.git "$DWM_DIR" || {
-            printf "%b\n" "Failed to clone dwm."
+        printf "%b\n" "dwm not found, cloning repository..."
+        git clone "$DWM_REPO" "$DWM_DIR" || {
+            printf "%b\n" "Failed to clone dwm." >&2
             exit 1
         }
     else
-        printf "%b\n" "DWM directory already exists, updating.."
-        git -C "$DWM_DIR" pull
-    fi
-
-    # An unchecked cd here used to leave the build - and every relative path
-    # after it - running in whatever directory the tab happened to start in.
-    cd "$DWM_DIR" || {
-        printf "%b\n" "Could not enter $DWM_DIR."
-        exit 1
-    }
-    sudo make clean install # Run make clean install
-}
-
-install_nerd_font() {
-    # Check to see if the FiraCode Nerd Font is installed (Change this to whatever font you would like)
-    FONT_NAME="FiraCode Nerd Font"
-    FONT_DIR="$HOME/.local/share/fonts"
-    FONT_URL="https://github.com/ryanoasis/nerd-fonts/releases/latest/download/FiraCode.zip"
-    FONT_INSTALLED=$(fc-list | grep -i "FiraCode")
-
-    if [ -n "$FONT_INSTALLED" ]; then
-        printf "%b\n" "FiraCode Nerd-fonts are already installed."
-        return 0
-    fi
-
-    printf "%b\n" "Installing FiraCode Nerd-fonts"
-
-    # Create the fonts directory if it doesn't exist
-    if [ ! -d "$FONT_DIR" ]; then
-        mkdir -p "$FONT_DIR" || {
-            printf "%b\n" "Failed to create directory: $FONT_DIR"
-            return 1
+        printf "%b\n" "dwm directory already exists, updating..."
+        git -C "$DWM_DIR" pull || {
+            printf "%b\n" "Could not update $DWM_DIR." >&2
+            printf "%b\n" "Resolve it by hand, then re-run this tab." >&2
+            exit 1
         }
     fi
-    printf "%b\n" "Installing font '$FONT_NAME'"
-    # Change this URL to correspond with the correct font
-    FONT_URL="https://github.com/ryanoasis/nerd-fonts/releases/latest/download/FiraCode.zip"
-    FONT_DIR="$HOME/.local/share/fonts"
-    curl -sSLo "$TEMP_DIR"/"${FONT_NAME}".zip "$FONT_URL"
-    unzip "$TEMP_DIR"/"${FONT_NAME}".zip -d "$TEMP_DIR"
-    mkdir -p "$FONT_DIR"/"$FONT_NAME"
-    mv "${TEMP_DIR}"/*.ttf "$FONT_DIR"/"$FONT_NAME"
-    fc-cache -fv
-    printf "%b\n" "'$FONT_NAME' installed successfully."
-}
 
-clone_config_folders() {
-    # Ensure the target directory exists
-    [ ! -d ~/.config ] && mkdir -p ~/.config
-    [ ! -d ~/.local/bin ] && mkdir -p ~/.local/bin
-    # Copy scripts to local bin
-    cp -rf "$DWM_DIR/scripts/." "$HOME/.local/bin/"
-
-    FONT_DIR="$HOME/.local/share/fonts"
-    mkdir -p "$FONT_DIR"
-    if [ -d "$DWM_DIR/config/polybar/fonts" ]; then
-        cp -r "$DWM_DIR/config/polybar/fonts/"* "$FONT_DIR/"
-        fc-cache -fv
-        printf "%b\n" "Polybar icon fonts installed"
+    # The bar is a Quickshell config under config/quickshell/, and it exists
+    # only on the dwm repo's default branch once the Quickshell work has landed
+    # there. Installing a clone without it is worse than getting an old bar:
+    # config.h sets usealtbar=1, so dwm draws no bar of its own, and autostart[]
+    # starts nothing to take its place. The desktop comes up with no bar at all.
+    # Refuse rather than hand back a bare screen and no clue why.
+    if [ ! -f "$DWM_DIR/config/quickshell/shell.qml" ]; then
+        printf "%b\n" "$DWM_DIR has no config/quickshell/ - this clone predates the bar." >&2
+        printf "%b\n" "Installing it would leave you with no bar at all (config.h sets usealtbar=1)." >&2
+        printf "%b\n" "Land the Quickshell branch on the dwm repo's default branch, then re-run." >&2
+        exit 1
     fi
 
-    # Absolute, not "config/*/": the relative glob only resolved because
-    # make_dwm happened to leave the shell inside $DWM_DIR. If that cd had
-    # failed the loop matched nothing, copied no configs, and said so for a
-    # directory that does exist - which is why a second run appeared to fix it.
-    for dir in "$DWM_DIR"/config/*/; do
-        # Extract the directory name
-        dir_name=$(basename "$dir")
+    # This tab used to run `sudo make clean install`, which built as root and
+    # left the object files and the binary owned by root. An unprivileged build
+    # then cannot overwrite them. Clearing as root once fixes an existing
+    # install; from here the build runs as you and only the install step is
+    # privileged, so nothing under $HOME ends up root-owned again.
+    printf "%b\n" "Building dwm..."
+    sudo make -C "$DWM_DIR" clean
+    make -C "$DWM_DIR"
 
-        # Clone the directory to ~/.config/
-        if [ -d "$dir" ]; then
-            cp -r "$dir" ~/.config/
-            printf "%b\n" "Cloned $dir_name to ~/.config/"
-        else
-            printf "%b\n" "Directory $dir_name does not exist, skipping"
-        fi
-    done
+    # The install target copies into these but does not always create them, so
+    # on a home directory that has neither yet the copy fails outright. Making
+    # them here also keeps them owned by you rather than by root.
+    mkdir -p "$HOME/.config" "$HOME/.local/bin"
+
+    # install places the binary, the man page and the desktop entry, and copies
+    # config/* to ~/.config, scripts/* to ~/.local/bin, and both .xinitrc and
+    # .xprofile to $HOME. Those last two are written only when absent, so an
+    # .xprofile left over from another setup is kept as it is. Copying any of
+    # this again here would only risk the two going out of sync.
+    printf "%b\n" "Installing dwm, configs and scripts..."
+    sudo make -C "$DWM_DIR" install
 }
 
 configure_backgrounds() {
-    # Set the variable PIC_DIR which stores the path for images
-    PIC_DIR="$HOME/Pictures"
-
-    # Set the variable BG_DIR to the path where backgrounds will be stored
-    BG_DIR="$PIC_DIR/backgrounds"
-    mkdir -p "$PIC_DIR"
+    BG_DIR="$HOME/Pictures/backgrounds"
     mkdir -p "$BG_DIR"
-    cp -r "$HOME/.local/share/dwm/backgrounds/"* "$BG_DIR/"
 
+    # config.h autostarts feh against this directory. An empty backgrounds/
+    # leaves the glob unexpanded and cp fails, which under -e would abort the
+    # tab on its very last step; with no wallpapers feh simply has nothing to
+    # show, so warn and carry on.
+    if [ -z "$(ls -A "$DWM_DIR/backgrounds" 2>/dev/null)" ]; then
+        printf "%b\n" "No wallpapers in $DWM_DIR/backgrounds - skipping."
+        return 0
+    fi
+
+    cp -f "$DWM_DIR"/backgrounds/* "$BG_DIR/"
+    printf "%b\n" "Wallpapers installed to $BG_DIR"
+}
+
+# Installing bluez only puts it on disk. Arch enables nothing by preset, and on
+# a machine that does have an adapter that is the difference between a working
+# pill and one that never appears: with bluetooth.service stopped,
+# `bluetoothctl show` prints no "Powered:" line, so BluetoothModel.qml reports
+# available=false and the bar hides the pill outright. Correct behaviour, but
+# indistinguishable from a bug.
+enable_services() {
+    if ! has_bluetooth_adapter; then
+        printf "%b\n" "No bluetooth adapter - leaving bluetooth.service alone."
+        printf "%b\n" "The bar hides its bluetooth pill when there is no adapter."
+    elif is_service_active bluetooth; then
+        printf "%b\n" "bluetooth.service is already running."
+    else
+        printf "%b\n" "Enabling bluetooth.service..."
+        sudo systemctl enable --now bluetooth.service
+    fi
+
+    # NetworkManager is deliberately not enabled here. The bar's network pill
+    # needs it, but a machine can just as legitimately be on systemd-networkd or
+    # iwd, and starting NetworkManager alongside one of those breaks the stack
+    # that was working. Report it and let the owner decide.
+    if is_service_active NetworkManager; then
+        if has_wifi_device; then
+            printf "%b\n" "NetworkManager is running, with a wireless device present."
+        else
+            printf "%b\n" "NetworkManager is running. No wireless device, which is fine -"
+            printf "%b\n" "the bar's network pill reads the wired connection and shows an"
+            printf "%b\n" "ethernet icon."
+        fi
+    else
+        printf "%b\n" "NetworkManager is not running - the bar's network pill will stay hidden." >&2
+        printf "%b\n" "If nothing else manages this machine's network:" >&2
+        printf "%b\n" "    sudo systemctl enable --now NetworkManager" >&2
+    fi
+}
+
+# GTK applications are already dark at this point: make install placed
+# ~/.config/gtk-3.0 and ~/.config/gtk-4.0, and GTK reads those directly because
+# dwm runs no XSettings manager. libadwaita and Qt ask the desktop portal
+# instead, and the portal's answers come out of dconf - these three keys.
+# Without them those applications come up light against everything else.
+configure_dark_mode() {
+    if ! command_exists gsettings; then
+        printf "%b\n" "gsettings not found - GTK4 and Qt applications may stay light." >&2
+        return 0
+    fi
+
+    # Papirus, not Papirus-Dark: the Dark variant ships no application icons and
+    # inherits breeze-dark, which would empty the bar's app dock and tray.
+    portal_keys="
+gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark'
+gsettings set org.gnome.desktop.interface gtk-theme 'Adwaita-dark'
+gsettings set org.gnome.desktop.interface icon-theme 'Papirus'
+"
+
+    printf "%b\n" "Setting the desktop portal to dark..."
+
+    # gsettings needs a D-Bus session bus to commit to dconf, and this tab is
+    # normally run from a TTY before any desktop session exists, where there is
+    # none. dbus-run-session supplies a throwaway bus for the three writes; the
+    # values still land in ~/.config/dconf/user and outlive it.
+    if [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
+        sh -c "$portal_keys"
+    elif command_exists dbus-run-session; then
+        dbus-run-session -- sh -c "$portal_keys"
+    else
+        printf "%b\n" "No session bus and no dbus-run-session - skipping dark mode." >&2
+        return 0
+    fi
+
+    # gsettings exits 0 even when the dconf commit failed, so a `|| printf` on
+    # the writes above can never fire. Reading one key back is the only honest
+    # check that they took.
+    if [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
+        scheme="$(gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null)" || scheme=""
+    else
+        scheme="$(dbus-run-session -- gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null)" || scheme=""
+    fi
+
+    case "$scheme" in
+    *prefer-dark*) ;;
+    *)
+        printf "%b\n" "The portal colour scheme did not take - GTK4 and Qt apps may stay light." >&2
+        ;;
+    esac
 }
 
 setup_display_manager() {
     printf "%b\n" "Setting up Xorg"
     install_packages xorg-xinit xorg-server
-    printf "%b\n" "Xorg installed successfully"
-    printf "%b\n" "Setting up Display Manager"
+
     currentdm="none"
-    for dm in gdm sddm lightdm; do
+    for dm in gdm sddm lightdm ly; do
         if command_exists "$dm" || is_service_active "$dm"; then
             currentdm="$dm"
             break
         fi
     done
-    printf "%b\n" "Display Manager Setup: $currentdm"
-    if [ "$currentdm" = "none" ]; then
-        printf "%b\n" "--------------------------"
-        DM="sddm"
-        install_packages "$DM"
-        if [ "$DM" = "lightdm" ]; then
-            install_packages lightdm-gtk-greeter
-        elif [ "$DM" = "sddm" ]; then
-            sh -c "$(curl -fsSL https://raw.githubusercontent.com/keyitdev/sddm-astronaut-theme/master/setup.sh)"
-        fi
-        printf "%b\n" "$DM installed successfully"
-        enableService "$DM"
 
+    if [ "$currentdm" != "none" ]; then
+        printf "%b\n" "Display manager already present: $currentdm"
+        printf "%b\n" "Choose dwm at the login screen."
+        return 0
+    fi
+
+    printf "%b\n" "No display manager found, installing sddm..."
+    install_packages sddm
+
+    # Enable before theming. The previous version called enableService here,
+    # which is defined nowhere in this repo, so sddm was installed and never
+    # enabled and the next boot came up on a TTY. Doing it first also means a
+    # failing theme installer cannot cost you a working login screen.
+    sudo systemctl enable sddm.service
+    printf "%b\n" "sddm installed and enabled."
+
+    # Third-party theme installer, fetched and executed at install time. It is
+    # cosmetic, so a failure here is reported rather than fatal.
+    if ! sh -c "$(curl -fsSL https://raw.githubusercontent.com/keyitdev/sddm-astronaut-theme/master/setup.sh)"; then
+        printf "%b\n" "sddm theme setup failed - sddm itself is installed and enabled." >&2
     fi
 }
 
-setup_display_manager
+# Nothing creates ~/.Xresources - not this tab, and not the repo's own
+# installer - and scripts/.xprofile merges it only when it is there. That single
+# value is what scales dwm's font, rofi and the bar together, so a 4K screen
+# comes up looking broken until it is set. Say so instead of leaving it to be
+# discovered.
+report_hidpi() {
+    if [ -f "$HOME/.Xresources" ]; then
+        return 0
+    fi
+
+    printf "%b\n" "No ~/.Xresources found. On a HiDPI screen, set the scale with:"
+    printf "%b\n" "    echo 'Xft.dpi: 192' > ~/.Xresources"
+    printf "%b\n" "192 is 2x and 144 is 1.5x. Leave it unset on a 1080p screen."
+}
+
+check_preconditions
 setup_dwm
 make_dwm
-install_nerd_font
-clone_config_folders
 configure_backgrounds
+enable_services
+configure_dark_mode
+setup_display_manager
+report_hidpi
