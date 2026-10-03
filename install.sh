@@ -1,16 +1,5 @@
 #!/usr/bin/env bash
-#
 # install.sh — automated Arch Linux base install (ISO-run companion to start.sh)
-#
-# Takes a machine from a blank disk to a rebootable, LUKS2-encrypted Arch system
-# using the mkinitcpio UKI + systemd-boot path documented in README.md, then hands
-# off to start.sh for post-boot setup (firewall, dwm, dotfiles, ...).
-#
-# Run from a booted Arch live ISO:
-#   bash <(curl -fsSL https://raw.githubusercontent.com/gameshler/archsetup/main/install.sh)
-#
-# Scope: partition -> encrypt -> LVM -> pacstrap -> chroot config -> UKI/boot.
-# Out of scope: Secure Boot/sbctl, dracut, anything post-first-boot.
 
 set -euo pipefail
 
@@ -18,9 +7,6 @@ set -euo pipefail
 # on every pvcreate/vgcreate/lvcreate. Cosmetic, not a real leak — silence it.
 export LVM_SUPPRESS_FD_WARNINGS=1
 
-# ---------------------------------------------------------------------------
-# Output helpers
-# ---------------------------------------------------------------------------
 readonly C_RESET=$'\e[0m'
 readonly C_BOLD=$'\e[1m'
 readonly C_BLUE=$'\e[34m'
@@ -30,9 +16,9 @@ readonly C_RED=$'\e[31m'
 
 CURRENT_PHASE="startup"
 DESTRUCTIVE_STARTED=0   # flips to 1 once we begin writing to the disk (partition_disk)
-LOG=""                  # full-run transcript path (set in start_logging)
-LOG_FIFO=""             # named pipe feeding the transcript writer
-LOG_PID=""              # PID of the transcript writer, so stop_logging can wait on it
+LOG=""
+LOG_FIFO=""
+LOG_PID=""
 LOG_HOLD=""             # read-write fd keeping the pipe open, so writes never block
 ORIG_OUT=""             # saved terminal fds, restored by stop_logging to seal the pipe
 ORIG_ERR=""
@@ -75,9 +61,6 @@ EOF
 }
 trap on_err EXIT
 
-# ---------------------------------------------------------------------------
-# Defaults (all overridable at the prompts) — mirror README.md
-# ---------------------------------------------------------------------------
 readonly DEF_EFI_SIZE="1G"
 readonly DEF_TIMEZONE="Europe/London"
 readonly DEF_LOCALE="en_GB.UTF-8"
@@ -95,7 +78,6 @@ readonly -a BASE_PKGS=(
 # Same reasoning as BASE_PKGS: crossed into the chroot as CH_HOOKS and recorded.
 readonly MKINITCPIO_HOOKS="base systemd autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt lvm2 filesystems fsck"
 
-# Populated by the prompt phase.
 DISK=""
 PART_EFI=""
 PART_LUKS=""
@@ -108,7 +90,7 @@ VG_NAME="vg"          # chosen collision-free in setup_lvm (multi-disk safety)
 HOSTNAME=""
 USERNAME=""
 TIMEZONE=""
-GEO_COUNTRY=""        # ISO country code from geo-IP, for mirror ranking
+GEO_COUNTRY=""
 LOCALE=""
 KEYMAP=""
 UCODE=""
@@ -116,11 +98,6 @@ ROOT_PW=""
 USER_PW=""
 LUKS_PW=""
 
-# ---------------------------------------------------------------------------
-# Small helpers
-# ---------------------------------------------------------------------------
-
-# Partition device name for a whole-disk device: nvme0n1 -> nvme0n1p1, sda -> sda1.
 part_name() {
     local disk="$1" num="$2" p=""
     case "$disk" in
@@ -129,14 +106,12 @@ part_name() {
     printf '%s%s%s' "$disk" "$p" "$num"
 }
 
-# Total RAM in whole GiB (rounded up) — used to suggest a swap size.
 ram_gib() {
     local kib
     kib="$(awk '/MemTotal/{print $2}' /proc/meminfo)"
     echo $(( (kib + 1048575) / 1048576 ))
 }
 
-# Size of a whole-disk device in whole GiB.
 disk_gib() {
     local bytes
     bytes="$(blockdev --getsize64 "$1" 2>/dev/null || echo 0)"
@@ -157,15 +132,12 @@ size_to_gib() {
 # caller's variable by name via `printf -v`, so a local sharing that name would
 # shadow it: passing a variable called `reply` used to write to this function's
 # own local and leave the caller's untouched (and unset under `set -u`).
-#
-# Prompt with a default: prompt_default VAR "Question" "default"
 prompt_default() {
     local __var="$1" __question="$2" __default="$3" __reply=""
     read -rp "$__question [$__default]: " __reply || true
     printf -v "$__var" '%s' "${__reply:-$__default}"
 }
 
-# Prompt for a non-empty value (loops until given).
 prompt_required() {
     local __var="$1" __question="$2" __reply=""
     while :; do
@@ -176,8 +148,6 @@ prompt_required() {
     printf -v "$__var" '%s' "$__reply"
 }
 
-# Prompt for a value that must match a regex (loops until it does).
-# prompt_matching VAR "Question" '^regex$' "hint shown on mismatch"
 prompt_matching() {
     local __var="$1" __question="$2" __regex="$3" __hint="$4" __reply=""
     while :; do
@@ -188,7 +158,6 @@ prompt_matching() {
     printf -v "$__var" '%s' "$__reply"
 }
 
-# Prompt for a hidden password with confirmation (loops until they match).
 prompt_password() {
     local __var="$1" __label="$2" __p1="" __p2=""
     while :; do
@@ -201,9 +170,6 @@ prompt_password() {
     printf -v "$__var" '%s' "$__p1"
 }
 
-# ---------------------------------------------------------------------------
-# Phase 1 — preflight
-# ---------------------------------------------------------------------------
 preflight() {
     phase "Preflight checks"
 
@@ -228,11 +194,7 @@ preflight() {
     ok "Running as root, UEFI confirmed."
 }
 
-# ---------------------------------------------------------------------------
-# Phase 2 — network auto-detect (ethernet vs wifi)
-# ---------------------------------------------------------------------------
 network_up() {
-    # True if any non-loopback interface reports a live carrier.
     local iface carrier
     for iface in /sys/class/net/*; do
         [[ "$(basename "$iface")" == "lo" ]] && continue
@@ -276,7 +238,6 @@ connect_wifi() {
     unset wpw
 }
 
-# Real reachability, not just link: route (ping an IP) AND DNS (ping a name).
 route_ok() { ping -c1 -W2 1.1.1.1 >/dev/null 2>&1; }
 dns_ok()   { ping -c1 -W2 archlinux.org >/dev/null 2>&1; }
 
@@ -301,17 +262,12 @@ setup_network() {
         sleep 2
     done
 
-    # Distinguish the failure so the message is actionable.
     if route_ok; then
         die "Link and routing are up, but DNS resolution fails. Check /etc/resolv.conf and re-run."
     fi
     die "Still offline (no route). Connect a network (iwctl / dhcpcd) and re-run."
 }
 
-# ---------------------------------------------------------------------------
-# Phase 3 — interactive prompts (the only manual input)
-# ---------------------------------------------------------------------------
-# Best-effort timezone guess from the public IP. Echoes a valid zone, or non-zero.
 detect_timezone() {
     local tz="" url
     for url in "https://ipapi.co/timezone" "https://ipinfo.io/timezone"; do
@@ -321,7 +277,6 @@ detect_timezone() {
     return 1
 }
 
-# Loop a search helper until the user names a valid zone. Seeds with $1.
 resolve_timezone() {
     local reply="$1" term
     while :; do
@@ -378,7 +333,6 @@ locale_canonical() {
     ' /etc/locale.gen
 }
 
-# Pick a locale, resolved to the canonical /etc/locale.gen name, with search.
 choose_locale() {
     local reply term canon
     read -rp "Locale [$DEF_LOCALE] (type 's' to search): " reply || true
@@ -401,7 +355,6 @@ choose_locale() {
     done
 }
 
-# Pick a console keymap, validated against localectl, with a search helper.
 choose_keymap() {
     local reply term keymaps
     keymaps="$(localectl list-keymaps 2>/dev/null || true)"
@@ -424,11 +377,6 @@ choose_keymap() {
     done
 }
 
-# Prompted layout (matches README's swap/root/home form). Both prompts carry the
-# old automatic values as defaults, so pressing Enter twice reproduces the
-# previous behaviour exactly: swap = total RAM, root = 10% of the disk capped at
-# 100 GiB, /home = the rest. Shown again in the wipe confirmation before anything
-# is written.
 configure_layout() {
     local dsize ram_g swap_g root_g def_root avail ans=""
 
@@ -442,7 +390,6 @@ configure_layout() {
     echo
     info "Disk: $DISK (~${dsize} GiB), RAM: ${ram_g} GiB. EFI is fixed at $EFI_SIZE."
 
-    # --- swap (optional) ---
     # Default = total RAM, so a hibernation image would fit. No resume= is set,
     # though: hibernation is out of scope (swap is inside LUKS).
     while :; do
@@ -455,13 +402,10 @@ configure_layout() {
     done
     if (( swap_g > 0 )); then SWAP_SIZE="${swap_g}G"; else SWAP_SIZE=""; fi
 
-    # --- root ---
-    # Default = 10% of the disk capped at 100 GiB (a 10 TB disk still gets 100).
     def_root=$(( dsize / 10 ))
     (( def_root > 100 )) && def_root=100
     (( def_root < 1 ))   && def_root=1   # guard tiny / undetected disks
 
-    # What is left for root + /home once the ESP and swap are taken.
     avail=$(( dsize - 1 - swap_g ))
     if (( dsize > 0 && avail < 2 )); then
         die "EFI 1 GiB + swap ${swap_g} GiB leaves ${avail} GiB on a ~${dsize} GiB disk — no room for root. Use less swap or a larger disk."
@@ -555,7 +499,6 @@ gather_input() {
     prompt_default prof "  Choice" "1"
     [[ "$prof" == "2" ]] && SYS_PROFILE="server" || SYS_PROFILE="desktop"
 
-    # ucode auto-detect
     local vendor
     vendor="$( (grep -m1 vendor_id /proc/cpuinfo || true) | awk '{print $NF}')"
     case "$vendor" in
@@ -568,9 +511,6 @@ gather_input() {
     if [[ -n "$UCODE" ]]; then ok "CPU microcode: $UCODE"; fi
 }
 
-# ---------------------------------------------------------------------------
-# Phase 4 — wipe-confirmation gate
-# ---------------------------------------------------------------------------
 confirm_wipe() {
     phase "Confirm disk wipe"
     local bare="${DISK##*/}"
@@ -616,16 +556,12 @@ confirm_wipe() {
     ok "Confirmed. Proceeding."
 }
 
-# ---------------------------------------------------------------------------
-# Phase 5 — teardown + partition + encrypt
-# ---------------------------------------------------------------------------
 # Reinstall safety: tear down prior LUKS/LVM state **only on the target disk**,
 # never on other drives (a VG named "vg" may exist elsewhere).
 teardown_existing() {
     info "Clearing existing LVM/LUKS on $DISK only (reinstall safety)..."
     local dev vg holder
 
-    # 1. swapoff any swap LV/partition that sits on this disk.
     while read -r dev; do
         [[ -n "$dev" ]] && swapoff "$dev" 2>/dev/null || true
     done < <(lsblk -pnro NAME,FSTYPE "$DISK" 2>/dev/null | awk '$2=="swap"{print $1}')
@@ -639,12 +575,10 @@ teardown_existing() {
         [[ -n "$vg" ]] && vgchange -an "$vg" 2>/dev/null || true
     done < <(lsblk -pnro NAME,TYPE "$DISK" 2>/dev/null | awk '$2=="crypt"||$2=="part"{print $1}')
 
-    # 3. close crypt mappings backed by this disk.
     while read -r holder; do
         cryptsetup close "$(basename "$holder")" 2>/dev/null || true
     done < <(lsblk -pnro NAME,TYPE "$DISK" 2>/dev/null | awk '$2=="crypt"{print $1}')
 
-    # 4. wipe old signatures on the partitions we are about to recreate.
     wipefs -fa "$PART_EFI" 2>/dev/null || true
     wipefs -fa "$PART_LUKS" 2>/dev/null || true
 }
@@ -687,9 +621,6 @@ partition_disk() {
     ok "Encrypted container opened as /dev/mapper/cryptlvm (profile: $SYS_PROFILE)"
 }
 
-# ---------------------------------------------------------------------------
-# Phase 6 — LVM + filesystems + mount
-# ---------------------------------------------------------------------------
 setup_lvm() {
     phase "LVM + filesystems"
 
@@ -737,9 +668,6 @@ setup_lvm() {
     ok "Filesystems mounted at /mnt (VG: $VG_NAME)"
 }
 
-# ---------------------------------------------------------------------------
-# Phase 7 — mirrors + pacstrap + fstab
-# ---------------------------------------------------------------------------
 install_base() {
     phase "Mirror ranking + base install"
 
@@ -789,9 +717,6 @@ install_base() {
     ok "Base system installed."
 }
 
-# ---------------------------------------------------------------------------
-# Phase 8+9 — chroot configuration (config, users, UKI, bootloader)
-# ---------------------------------------------------------------------------
 configure_system() {
     phase "System configuration (chroot)"
 
@@ -1020,16 +945,12 @@ write_install_log() {
     ok "Install record written to /var/log/archsetup-install.log (on the new system)."
 }
 
-# ---------------------------------------------------------------------------
-# Phase 10 — finish
-# ---------------------------------------------------------------------------
 finish() {
     phase "Finishing up"
 
     # Record what we built (while /mnt is still mounted) before tearing it down.
     write_install_log
 
-    # Scrub secrets from the environment.
     unset ROOT_PW USER_PW LUKS_PW
 
     # Print the hand-off BEFORE sealing the transcript, so the copy on the target
@@ -1079,10 +1000,6 @@ EOF
     fi
 }
 
-# Tee the whole run (stdout+stderr) to a timestamped transcript so a fast-scrolling
-# or failed run can be read back. Colour stays on the terminal but is stripped from
-# the file, keeping it greppable. finish() copies it onto the target on success; on
-# failure it stays on the ISO to be read before rebooting.
 start_logging() {
     local ts; ts="$(date +%Y%m%d-%H%M%S)"
     LOG="/var/log/archsetup-install-${ts}.log"
@@ -1128,7 +1045,6 @@ stop_logging() {
     LOG_FIFO=""
 }
 
-# ---------------------------------------------------------------------------
 main() {
     start_logging
     preflight

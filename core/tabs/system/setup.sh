@@ -9,30 +9,13 @@ set -euo pipefail
 
 # Rank mirrors by measured download rate, preferring the country the user picks
 # and widening to the worldwide pool only when that country cannot supply enough.
-#
-# An earlier revision dropped the country filter entirely, on the wiki's advice
-# that it is "typically not a good idea to filter by country; there are only a
-# finite number of mirrors in a single country." That advice is about the
-# starvation case, and taking it as a blanket rule under-delivered badly on a
-# fibre line. Two reasons:
-#
-#   - --latest picks the most recently *synced* mirrors, and sync recency says
-#     nothing about where a mirror is. Worldwide, the candidate pool handed to
-#     --fastest is effectively a random draw across continents.
-#   - --fastest rate-tests each candidate with one small file, so it measures
-#     mostly TCP slow start rather than sustained throughput. It will happily
-#     rank a distant mirror above a local one that would saturate the link.
-#
-# So: rank inside a country, and treat the wiki's warning as the fallback path
-# below rather than as a reason never to filter.
-#
 # reflector.service re-runs this on every boot (see enable_reflector), so the
 # list follows whatever is actually fast from here today.
 readonly -a REFLECTOR_BASE_ARGS=(
-    --protocol https   # HTTPS only
-    --age 12           # synced within the last 12 hours
-    --latest 40        # 40 most recently synced, within the pool below
-    --fastest 10       # rate-test those, keep the 10 fastest
+    --protocol https
+    --age 12
+    --latest 40
+    --fastest 10
     --sort rate
 )
 
@@ -41,7 +24,6 @@ readonly -a REFLECTOR_BASE_ARGS=(
 # the "finite number of mirrors in a single country" case the wiki warns about.
 readonly MIN_MIRRORS=5
 
-# Set from the environment to skip the prompt: MIRROR_COUNTRY=DE bash setup.sh
 MIRROR_COUNTRY="${MIRROR_COUNTRY:-}"
 declare -a REFLECTOR_ARGS=()
 
@@ -52,13 +34,6 @@ build_reflector_args() {
     fi
 }
 
-# Print the ISO code for a country name or code, or nothing if it is not one
-# reflector knows. $2 is the `reflector --list-countries` table:
-#
-#     Country                  Code Count
-#     ------------------------ ---- -----
-#     United States              US   120
-#
 # The name is every field but the last two, so it survives "United States" and
 # "Bosnia and Herzegovina" alike. Resolving to the code matters beyond tidiness:
 # reflector.conf is split on whitespace, so a name would reach the boot service
@@ -157,7 +132,6 @@ choose_country() {
     exec 3<&-
 }
 
-# Rank into $1, returning non-zero unless it really holds MIN_MIRRORS servers.
 # reflector can exit 0 and still leave an empty or near-empty file: an
 # over-narrow --country, transient mirror JSON, or every candidate timing out
 # all look like success from its exit status alone.
@@ -222,7 +196,6 @@ enable_reflector() {
     # reflector.service runs on every boot; reflector.timer runs it weekly. The
     # wiki calls enabling both redundant, and "on every boot" is what we want
     # here, so enable only the service and make sure the timer is not also armed.
-    #
     # The service needs the network genuinely up, not merely configured, so the
     # NetworkManager wait unit must back network-online.target.
     sudo systemctl enable NetworkManager-wait-online.service
@@ -237,7 +210,6 @@ main() {
     printf "%b\n" "Checking System Package Manager and AUR"
 
     sudo "$PACKAGER" -Syu --noconfirm
-    # pacman config
     printf "%b\n" "Configuring pacman"
     sudo sed -i -E \
         -e 's/^\s*#\s*(Color)/\1/' \
@@ -254,11 +226,8 @@ main() {
 
     sudo "$PACKAGER" -Syyu --noconfirm
 
-    # Pulled ahead of the package set below, not listed with it. Ranking mirrors
-    # after every download has finished cannot speed up a single one of them,
-    # which is what this tab used to do: the ~30 packages came down over the
-    # stock mirrorlist and reflector only ran once there was nothing left to
-    # fetch. reflector supplies the ranking, curl the geo-IP country guess.
+    # Must precede the package set: reflector can only speed up downloads that
+    # start after it has written the mirrorlist.
     install_packages reflector curl
 
     choose_country
@@ -271,12 +240,10 @@ main() {
         base-devel mangohud lib32-mangohud \
         htop steam python rust git
 
-    # mangohud config
     printf "%b\n" "Configuring MangoHud"
     mkdir -p "$HOME/.config/MangoHud" && cp /usr/share/doc/mangohud/MangoHud.conf.example "$HOME/.config/MangoHud/MangoHud.conf" || true
     config_file="$HOME/.config/MangoHud/MangoHud.conf"
 
-    # Settings you want to enable
     settings_to_uncomment=(
         "gpu_stats"
         "gpu_temp"
@@ -296,7 +263,6 @@ main() {
         "text_outline"
     )
 
-    # Loop and uncomment each line that starts with the key (if commented)
     for setting in "${settings_to_uncomment[@]}"; do
         sed -i -E "s/^\s*#\s*(${setting})(\s*(=|$))/${setting}\2/" "$config_file"
     done

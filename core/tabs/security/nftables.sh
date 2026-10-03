@@ -20,7 +20,6 @@ configure_nftables() {
     # so the ruleset can never open a port sshd is not listening on.
     resolve_ssh_port
 
-    # Detect interface used for default route
     WAN_IF=$(ip route | awk '/^default/ {print $5; exit}')
     if [ -z "$WAN_IF" ]; then
         printf "%b\n" "Could not detect default interface, aborting nftables configuration."

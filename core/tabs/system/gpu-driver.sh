@@ -64,7 +64,6 @@ install_gpu_drivers() {
         # lib32-vulkan-intel and lib32-mesa are multilib-only, and this tab can
         # run before system/setup.sh has enabled that repository.
         enable_multilib
-        # libva-intel-driver was listed twice in this line.
         install_packages libva-intel-driver libvdpau-va-gl lib32-vulkan-intel vulkan-intel libva-utils lib32-mesa
         ;;
     esac

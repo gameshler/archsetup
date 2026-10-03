@@ -1,22 +1,8 @@
 #!/usr/bin/env bash
-#
 # verify-install.sh — read-only PASS/FAIL audit of a system built by install.sh.
-#
-# Run this ON THE FRESHLY BOOTED target (not the live ISO). It re-checks every
-# install-scope item from README.md — partition/LUKS/LVM layout, filesystems +
-# fstab hardening, base packages, localization, user/sudo, services, and the
-# whole mkinitcpio-UKI + systemd-boot chain — and prints PASS / FAIL / WARN per
-# item plus a summary. Exit status is non-zero if anything FAILed.
-#
 # It is strictly READ-ONLY: it inspects state (findmnt, lsblk, blkid, cryptsetup
 # luksDump/status, pvs/lvs, pacman -Q, systemctl is-enabled, objcopy, bootctl
 # status) and never writes, mounts, enables, or formats anything.
-#
-# Scope = exactly what install.sh builds. Post-boot items (Secure Boot, nftables,
-# sysctl, desktop env, apps, yay, TLP) are start.sh/core territory and NOT checked.
-#
-#   Usage:  sudo ./verify-install.sh
-#
 # NOTE: deliberate, correct divergences from the literal README are verified as
 # the *intended* behavior, not flagged as failures:
 #   - LV sizes are dynamic (swap=RAM, root=10%/100G cap, home=rest), not 32G/100G
@@ -44,7 +30,6 @@ if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
     printf '    sudo bash verify-install.sh\n\n' >&2
 fi
 
-# ---------------------------------------------------------------------------
 C_RESET=$'\e[0m'; C_BOLD=$'\e[1m'
 C_GREEN=$'\e[32m'; C_RED=$'\e[31m'; C_YELLOW=$'\e[33m'; C_BLUE=$'\e[34m'
 
@@ -57,7 +42,6 @@ sect() { printf '\n%s== %s ==%s\n' "$C_BOLD$C_BLUE" "$1" "$C_RESET"; }
 # assert "desc" <0|1> ["detail on fail"]  — 0 => PASS, non-0 => FAIL
 assert() { if [[ "$2" == "0" ]]; then pass "$1"; else fail "$1" "${3:-}"; fi; }
 
-# ---------------------------------------------------------------------------
 # Tee the whole audit to a timestamped transcript so a fast-scrolling or partial
 # run can be read back and diffed later, same as install.sh's. Runs AFTER the sudo
 # re-exec, so there is exactly one log, written as root. Best-effort: fall back to
@@ -75,18 +59,12 @@ start_logging() {
 }
 start_logging
 
-# ---------------------------------------------------------------------------
-# Auto-detect the layout this system actually booted from.
-# ---------------------------------------------------------------------------
 REC="/var/log/archsetup-install.log"
 
-# rec <key> [fallback] — read a field from the install record.
-#
 # The record comes from the very install.sh that built this system, so preferring
 # it keeps the two from drifting: add a package or reorder HOOKS there and this
 # audit follows. The fallback is what install.sh used when this verifier was
 # written, so pre-record systems are still audited rather than skipped.
-#
 # Stable identifiers (cryptlvm, the EFI label, arch-linux.efi) are deliberately
 # NOT read from the record — they are contract, and this audit should fail loudly
 # if one ever changes rather than quietly follow along.
@@ -121,7 +99,6 @@ printf 'Detected: disk=%s  efi=%s  luks=%s  vg=%s\n' "${DISK:-?}" "${EFI_PART:-?
 printf '          profile=%s  user=%s\n' "${PROFILE:-unknown}" "${USER_NAME:-unknown}"
 [[ -n "$LOG" ]] && printf '          transcript=%s\n' "$LOG"
 
-# ---------------------------------------------------------------------------
 sect "A. Partitioning, encryption, LVM"
 
 if [[ -n "$EFI_PART" && -b "$EFI_PART" ]]; then
@@ -161,7 +138,6 @@ if flags="$(cryptsetup status cryptlvm 2>/dev/null | awk '/flags:/{ $1=""; print
     fi
 fi
 
-# PV / VG / LVs
 pvs --noheadings -o pv_name 2>/dev/null | grep -q '/dev/mapper/cryptlvm' \
     && pass "physical volume is on /dev/mapper/cryptlvm" || fail "physical volume is on /dev/mapper/cryptlvm"
 for lv in root home swap; do
@@ -187,7 +163,6 @@ if lvs --noheadings -o lv_name "$VG" 2>/dev/null | tr -d ' ' | grep -qx swap; th
         && pass "swap is active" || fail "swap is active" "swap LV exists but swapon shows it inactive"
 fi
 
-# ---------------------------------------------------------------------------
 sect "B. Filesystems & fstab"
 
 [[ "$ROOT_SRC" == "/dev/mapper/${VG}-root" ]] \
@@ -209,7 +184,6 @@ else
     fail "/etc/fstab readable"
 fi
 
-# ---------------------------------------------------------------------------
 sect "C. Base packages"
 
 for p in $EXPECT_PKGS; do
@@ -228,7 +202,6 @@ else
     warn "microcode package" "unknown CPU vendor '$vendor' — none expected"
 fi
 
-# ---------------------------------------------------------------------------
 sect "D. Localization & identity"
 
 tgt="$(readlink /etc/localtime 2>/dev/null)"
@@ -261,7 +234,6 @@ if [[ -n "$host" ]]; then
 fi
 grep -qE '^127\.0\.0\.1[[:space:]]+localhost' /etc/hosts && pass "/etc/hosts localhost line" || fail "/etc/hosts localhost line"
 
-# ---------------------------------------------------------------------------
 sect "E. User & sudo"
 
 if [[ -n "$USER_NAME" ]] && id "$USER_NAME" >/dev/null 2>&1; then
@@ -292,7 +264,6 @@ if [[ -n "$USER_NAME" ]] && command -v sudo >/dev/null 2>&1; then
         && pass "sudo -l confirms '$USER_NAME' resolves to admin policy" || fail "sudo -l admin policy for '$USER_NAME'"
 fi
 
-# ---------------------------------------------------------------------------
 sect "F. Services"
 
 systemctl is-enabled NetworkManager >/dev/null 2>&1 && pass "NetworkManager enabled" || fail "NetworkManager enabled"
@@ -310,7 +281,6 @@ if [[ -e /usr/lib/systemd/system/systemd-boot-update.service ]]; then
         && pass "systemd-boot-update.service enabled" || warn "systemd-boot-update.service enabled"
 fi
 
-# ---------------------------------------------------------------------------
 sect "G. Boot chain (mkinitcpio UKI + systemd-boot)"
 
 grep -qxF "HOOKS=($EXPECT_HOOKS)" /etc/mkinitcpio.conf 2>/dev/null \
@@ -342,7 +312,6 @@ fi
 grep -q 'rd.luks.name=' /proc/cmdline 2>/dev/null \
     && pass "running kernel booted with the LUKS cmdline (/proc/cmdline)" || warn "/proc/cmdline shows rd.luks.name" "kernel may have booted a different entry"
 
-# Presets: both must build default + fallback
 for pf in /etc/mkinitcpio.d/linux.preset /etc/mkinitcpio.d/linux-lts.preset; do
     if [[ -r "$pf" ]]; then
         grep -qE "^PRESETS=\('default' 'fallback'\)" "$pf" \
@@ -352,7 +321,6 @@ for pf in /etc/mkinitcpio.d/linux.preset /etc/mkinitcpio.d/linux-lts.preset; do
     fi
 done
 
-# The four UKIs must exist, be non-empty, and embed both UUIDs
 LINUXDIR=/boot/efi/EFI/Linux
 have_objcopy=0; command -v objcopy >/dev/null 2>&1 && have_objcopy=1
 for u in arch-linux.efi arch-linux-fallback.efi arch-linux-lts.efi arch-linux-lts-fallback.efi; do
@@ -374,7 +342,6 @@ for u in arch-linux.efi arch-linux-fallback.efi arch-linux-lts.efi arch-linux-lt
     fi
 done
 
-# systemd-boot loader + loader.conf
 [[ -f /boot/efi/EFI/systemd/systemd-bootx64.efi ]] \
     && pass "systemd-boot loader installed on the ESP" || fail "systemd-bootx64.efi on the ESP"
 LC=/boot/efi/loader/loader.conf
@@ -393,7 +360,6 @@ if command -v bootctl >/dev/null 2>&1; then
         && pass "bootctl reports systemd-boot installed" || warn "bootctl status" "EFI vars may be inaccessible; verify at the loader menu"
 fi
 
-# ---------------------------------------------------------------------------
 sect "H. Install artifacts"
 
 if [[ -f "$REC" ]]; then
@@ -405,7 +371,6 @@ fi
 ls /var/log/archsetup-install-*.log >/dev/null 2>&1 \
     && pass "run transcript copied to /var/log" || warn "run transcript in /var/log" "copied only on a successful finish"
 
-# ---------------------------------------------------------------------------
 printf '\n%s================ SUMMARY ================%s\n' "$C_BOLD" "$C_RESET"
 printf '  %sPASS %3d%s    %sFAIL %3d%s    %sWARN %3d%s\n' \
     "$C_GREEN" "$P" "$C_RESET" "$C_RED" "$F" "$C_RESET" "$C_YELLOW" "$W" "$C_RESET"

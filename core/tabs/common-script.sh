@@ -81,7 +81,6 @@ check_flatpak() {
 install_packages() {
     local source=""
 
-    # Detect if first arg is a source flag
     case "$1" in
     --official | --aur | --flatpak)
         source="$1"
@@ -89,7 +88,6 @@ install_packages() {
         ;;
     esac
 
-    # Default to official if not specified
     source="${source:---official}"
 
     case "$source" in
@@ -208,8 +206,6 @@ accept_env_ssh_port() {
     printf "%b\n" "Using SSH port $SSH_PORT from the environment."
 }
 
-# Always asks, defaulting to whatever is already known so pressing Enter keeps
-# it. security/ssh.sh uses this because it is the tab that decides the port.
 prompt_ssh_port() {
     local current="" answer="" at_eof=0
 
@@ -258,8 +254,6 @@ prompt_ssh_port() {
     save_ssh_port "$SSH_PORT"
 }
 
-# Never asks when the answer is already known. The firewall tabs use this so
-# they open exactly the port security/ssh.sh configured.
 resolve_ssh_port() {
     local saved=""
 
