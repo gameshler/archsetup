@@ -24,6 +24,31 @@ check_preconditions() {
     fi
 }
 
+# Both of these read the kernel's view through /sys rather than asking a tool,
+# because they have to answer before bluez or NetworkManager is installed.
+#
+# /sys/class/bluetooth and /sys/class/net exist whenever the subsystem is built
+# into the kernel and are empty when no device is attached, so the test is for
+# contents and not for the directory. An unmatched glob stays literal in POSIX
+# sh, which is why each loop tests the entry with -e before believing it.
+has_bluetooth_adapter() {
+    for dev in /sys/class/bluetooth/*; do
+        if [ -e "$dev" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+has_wifi_device() {
+    for dev in /sys/class/net/*/wireless; do
+        if [ -e "$dev" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 # Everything dwm itself, the keybindings in config.h and the bar actually call.
 # The bar is a Quickshell config now, not polybar: quickshell renders it,
 # xorg-xprop reads dwm's state, wmctrl handles tag and window clicks, and
@@ -45,12 +70,26 @@ setup_dwm() {
         xdg-utils xdg-user-dirs xdg-desktop-portal-gtk \
         ttf-firacode-nerd inter-font noto-fonts-emoji \
         networkmanager network-manager-applet \
-        bluez bluez-utils \
         pipewire pipewire-pulse pavucontrol \
         papirus-icon-theme pacman-contrib \
         thunar thunar-archive-plugin tumbler gvfs xarchiver \
         xclip unzip nwg-look alsa-utils gnome-keyring flatpak \
         xscreensaver tldr tmux
+
+    # NetworkManager stays in the list above unconditionally: it manages wired
+    # connections as well as wireless, and the bar's pill reads `nmcli device`
+    # either way, with an ethernet icon of its own. There is nothing in this tab
+    # that only a wireless machine needs.
+    #
+    # bluez is different. On a desktop with no adapter it is two dead packages
+    # and a service with nothing to manage, so install it only when the kernel
+    # reports an adapter.
+    if has_bluetooth_adapter; then
+        install_packages bluez bluez-utils
+    else
+        printf "%b\n" "No bluetooth adapter detected - skipping bluez."
+        printf "%b\n" "If you add one later: sudo pacman -S --needed bluez bluez-utils"
+    fi
 }
 
 make_dwm() {
@@ -124,6 +163,93 @@ configure_backgrounds() {
     printf "%b\n" "Wallpapers installed to $BG_DIR"
 }
 
+# Installing bluez only puts it on disk. Arch enables nothing by preset, and on
+# a machine that does have an adapter that is the difference between a working
+# pill and one that never appears: with bluetooth.service stopped,
+# `bluetoothctl show` prints no "Powered:" line, so BluetoothModel.qml reports
+# available=false and the bar hides the pill outright. Correct behaviour, but
+# indistinguishable from a bug.
+enable_services() {
+    if ! has_bluetooth_adapter; then
+        printf "%b\n" "No bluetooth adapter - leaving bluetooth.service alone."
+        printf "%b\n" "The bar hides its bluetooth pill when there is no adapter."
+    elif is_service_active bluetooth; then
+        printf "%b\n" "bluetooth.service is already running."
+    else
+        printf "%b\n" "Enabling bluetooth.service..."
+        sudo systemctl enable --now bluetooth.service
+    fi
+
+    # NetworkManager is deliberately not enabled here. The bar's network pill
+    # needs it, but a machine can just as legitimately be on systemd-networkd or
+    # iwd, and starting NetworkManager alongside one of those breaks the stack
+    # that was working. Report it and let the owner decide.
+    if is_service_active NetworkManager; then
+        if has_wifi_device; then
+            printf "%b\n" "NetworkManager is running, with a wireless device present."
+        else
+            printf "%b\n" "NetworkManager is running. No wireless device, which is fine -"
+            printf "%b\n" "the bar's network pill reads the wired connection and shows an"
+            printf "%b\n" "ethernet icon."
+        fi
+    else
+        printf "%b\n" "NetworkManager is not running - the bar's network pill will stay hidden." >&2
+        printf "%b\n" "If nothing else manages this machine's network:" >&2
+        printf "%b\n" "    sudo systemctl enable --now NetworkManager" >&2
+    fi
+}
+
+# GTK applications are already dark at this point: make install placed
+# ~/.config/gtk-3.0 and ~/.config/gtk-4.0, and GTK reads those directly because
+# dwm runs no XSettings manager. libadwaita and Qt ask the desktop portal
+# instead, and the portal's answers come out of dconf - these three keys.
+# Without them those applications come up light against everything else.
+configure_dark_mode() {
+    if ! command_exists gsettings; then
+        printf "%b\n" "gsettings not found - GTK4 and Qt applications may stay light." >&2
+        return 0
+    fi
+
+    # Papirus, not Papirus-Dark: the Dark variant ships no application icons and
+    # inherits breeze-dark, which would empty the bar's app dock and tray.
+    portal_keys="
+gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark'
+gsettings set org.gnome.desktop.interface gtk-theme 'Adwaita-dark'
+gsettings set org.gnome.desktop.interface icon-theme 'Papirus'
+"
+
+    printf "%b\n" "Setting the desktop portal to dark..."
+
+    # gsettings needs a D-Bus session bus to commit to dconf, and this tab is
+    # normally run from a TTY before any desktop session exists, where there is
+    # none. dbus-run-session supplies a throwaway bus for the three writes; the
+    # values still land in ~/.config/dconf/user and outlive it.
+    if [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
+        sh -c "$portal_keys"
+    elif command_exists dbus-run-session; then
+        dbus-run-session -- sh -c "$portal_keys"
+    else
+        printf "%b\n" "No session bus and no dbus-run-session - skipping dark mode." >&2
+        return 0
+    fi
+
+    # gsettings exits 0 even when the dconf commit failed, so a `|| printf` on
+    # the writes above can never fire. Reading one key back is the only honest
+    # check that they took.
+    if [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
+        scheme="$(gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null)" || scheme=""
+    else
+        scheme="$(dbus-run-session -- gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null)" || scheme=""
+    fi
+
+    case "$scheme" in
+    *prefer-dark*) ;;
+    *)
+        printf "%b\n" "The portal colour scheme did not take - GTK4 and Qt apps may stay light." >&2
+        ;;
+    esac
+}
+
 setup_display_manager() {
     printf "%b\n" "Setting up Xorg"
     install_packages xorg-xinit xorg-server
@@ -159,8 +285,26 @@ setup_display_manager() {
     fi
 }
 
+# Nothing creates ~/.Xresources - not this tab, and not the repo's own
+# installer - and scripts/.xprofile merges it only when it is there. That single
+# value is what scales dwm's font, rofi and the bar together, so a 4K screen
+# comes up looking broken until it is set. Say so instead of leaving it to be
+# discovered.
+report_hidpi() {
+    if [ -f "$HOME/.Xresources" ]; then
+        return 0
+    fi
+
+    printf "%b\n" "No ~/.Xresources found. On a HiDPI screen, set the scale with:"
+    printf "%b\n" "    echo 'Xft.dpi: 192' > ~/.Xresources"
+    printf "%b\n" "192 is 2x and 144 is 1.5x. Leave it unset on a 1080p screen."
+}
+
 check_preconditions
 setup_dwm
 make_dwm
 configure_backgrounds
+enable_services
+configure_dark_mode
 setup_display_manager
+report_hidpi
