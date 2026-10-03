@@ -54,7 +54,6 @@ has_wifi_device() {
 # xorg-xprop reads dwm's state, wmctrl handles tag and window clicks, and
 # xdotool tracks the focused window. Dropping any of those leaves the bar either
 # missing or unable to respond to a click.
-#
 # xorg-xrdb is the one whose absence is invisible. scripts/quickshell-launch.sh
 # translates Xft.dpi into QT_FONT_DPI only when xrdb is on PATH, so without it a
 # HiDPI screen scales dwm's font and rofi while the bar stays at 1x, and nothing
@@ -80,7 +79,6 @@ setup_dwm() {
     # connections as well as wireless, and the bar's pill reads `nmcli device`
     # either way, with an ethernet icon of its own. There is nothing in this tab
     # that only a wireless machine needs.
-    #
     # bluez is different. On a desktop with no adapter it is two dead packages
     # and a service with nothing to manage, so install it only when the kernel
     # reports an adapter.
@@ -123,11 +121,8 @@ make_dwm() {
         exit 1
     fi
 
-    # This tab used to run `sudo make clean install`, which built as root and
-    # left the object files and the binary owned by root. An unprivileged build
-    # then cannot overwrite them. Clearing as root once fixes an existing
-    # install; from here the build runs as you and only the install step is
-    # privileged, so nothing under $HOME ends up root-owned again.
+    # Only the install step is privileged. The clean is sudo because an earlier
+    # root-owned build leaves objects an unprivileged make cannot overwrite.
     printf "%b\n" "Building dwm..."
     sudo make -C "$DWM_DIR" clean
     make -C "$DWM_DIR"
@@ -271,10 +266,8 @@ setup_display_manager() {
     printf "%b\n" "No display manager found, installing sddm..."
     install_packages sddm
 
-    # Enable before theming. The previous version called enableService here,
-    # which is defined nowhere in this repo, so sddm was installed and never
-    # enabled and the next boot came up on a TTY. Doing it first also means a
-    # failing theme installer cannot cost you a working login screen.
+    # Enabled before theming, so a failing theme installer cannot cost you a
+    # working login screen.
     sudo systemctl enable sddm.service
     printf "%b\n" "sddm installed and enabled."
 

@@ -37,13 +37,11 @@ setup_bash() {
 }
 
 install_font() {
-    # Check to see if the FiraCode Nerd Font is installed (Change this to whatever font you would like)
     FONT_NAME="FiraCode Nerd Font"
     if fc-list :family | grep -iq "$FONT_NAME"; then
         printf "%b\n" "Font '$FONT_NAME' is installed."
     else
         printf "%b\n" "Installing font '$FONT_NAME'"
-        # Change this URL to correspond with the correct font
         FONT_URL="https://github.com/ryanoasis/nerd-fonts/releases/latest/download/FiraCode.zip"
         FONT_DIR="$HOME/.local/share/fonts"
         curl -sSLo "$TEMP_DIR"/"${FONT_NAME}".zip "$FONT_URL"
@@ -100,10 +98,6 @@ link_config() {
         exit 1
     }
 
-    # The displaced file is where tool installers had appended their activation
-    # lines. The new .bashrc activates nvm, bun and ~/.local/bin itself, so
-    # nothing is lost - but say where the old one went rather than leaving the
-    # user to guess why their prompt changed.
     if [ -e "$HOME/.bashrc.bak" ]; then
         printf "%b\n" "Your previous .bashrc is kept at $HOME/.bashrc.bak"
     fi

@@ -3,11 +3,6 @@
 set -euo pipefail
 
 # auto-mount.sh — prepare and persistently mount a *secondary* drive.
-#
-# This is for the extra drives in a machine, not the one Arch was installed on.
-# Flow: pick a device -> (format + label it, if blank or you choose to) ->
-# create a mount point -> write a UUID-based /etc/fstab entry (with `nofail`
-# so a missing drive can never wedge boot) -> mount it and verify.
 
 msg() { printf "%b\n" "$*"; }
 die() {
@@ -42,7 +37,6 @@ assert_not_in_use() {
     done < <(lsblk -nro KNAME "$dev" 2>/dev/null)
 }
 
-# List candidate drives/partitions and read a validated selection into $partition.
 select_drive() {
     clear
     msg "Available drives and partitions:"
@@ -66,8 +60,6 @@ select_drive() {
     fi
 }
 
-# Format + label the device, unless it already carries a filesystem the user
-# wants to keep. Leaves the device with a fresh fs and $LABEL set.
 maybe_format() {
     local existing
     existing="$(lsblk -dnro FSTYPE "$partition" 2>/dev/null || true)"
@@ -113,7 +105,6 @@ maybe_format() {
     sudo udevadm settle --timeout=15 2>/dev/null || true
 }
 
-# Resolve the UUID and filesystem type used for the fstab entry.
 get_uuid_fstype() {
     UUID="$(sudo blkid -s UUID -o value "$partition" 2>/dev/null || true)"
     FSTYPE="$(lsblk -dnro FSTYPE "$partition" 2>/dev/null || true)"
@@ -132,7 +123,6 @@ choose_mount_point() {
     fi
 }
 
-# Create the directory. Runs after formatting; purely local and non-destructive.
 create_mount_point() {
     if [[ ! -d "$mount_point" ]]; then
         msg "Creating mount point $mount_point..."

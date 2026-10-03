@@ -5,12 +5,8 @@
 
 . "$COMMON_SCRIPT"
 
-# Linux counterpart of macsetup's git-ssh.sh. Two macOS-only pieces are
-# deliberately absent, because OpenSSH on Linux rejects them outright:
-#   - `UseKeychain yes` in ~/.ssh/config  (Apple keychain integration)
-#   - `ssh-add --apple-use-keychain`      (same, on the agent side)
-# GitHub's own Linux tab documents plain `ssh-add ~/.ssh/id_ed25519`.
-# See: https://docs.github.com/en/authentication/connecting-to-github-with-ssh
+# `UseKeychain yes` in ~/.ssh/config and `ssh-add --apple-use-keychain` are
+# deliberately absent: OpenSSH on Linux rejects both outright.
 
 SSH_DIR="$HOME/.ssh"
 KEY="$SSH_DIR/id_ed25519"

@@ -2,7 +2,6 @@
 
 set -euo pipefail
 
-# Set environment variables
 export FILES="$INSTALL_DIR/files"
 export TABS_DIR="$INSTALL_DIR/core/tabs"
 export COMMON_SCRIPT="$TABS_DIR/common-script.sh"
@@ -89,7 +88,6 @@ meta_field() {
     { sed -n "1,12{s/^# *${field}: *//p;}" "$file" 2>/dev/null || true; } | head -1
 }
 
-# Fallback label when no metadata is present: "docker-setup" -> "Docker Setup".
 derive_label() {
     printf '%s' "$1" | tr -- '-_' '  ' |
         awk '{ for (i = 1; i <= NF; i++) $i = toupper(substr($i, 1, 1)) substr($i, 2); print }'

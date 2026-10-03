@@ -1,11 +1,10 @@
 # archsetup Technical Specification
 
-> **State anchor.** This document describes the repository at commit `3e0ceae`
-> on branch `gameshler/install-sh`, verified 2026-07-26 against a full read of
-> every tracked shell script. It is *descriptive*: it records how the code
-> behaves today, with file/line citations (paths are relative to the repo root).
-> Where a capability that a comparable tool (christitustech/linutil) has is
-> deliberately absent here, it is called out in
+> **State anchor.** This document describes the repository on branch `main` as
+> of 2026-10-03, when every file/line citation below was re-resolved against the
+> tree. It is *descriptive*: it records how the code behaves today, with
+> file/line citations (paths are relative to the repo root).
+> Capabilities that are deliberately absent are called out in
 > [§13 Future compatibility](#13-future-compatibility), not implied to exist.
 
 ## 1. Product definition
@@ -31,7 +30,7 @@ The product consists of:
 
 **Scope of "Arch."** archsetup targets Arch Linux specifically. Unlike a
 distro-agnostic tool, it hardcodes `pacman` and an AUR helper (`yay`). The shared
-library detects and *asserts* pacman (`core/tabs/common-script.sh:145`); on any
+library detects and *asserts* pacman (`core/tabs/common-script.sh:143`); on any
 other distribution it exits. Portability across package managers is a non-goal
 ([§3](#3-non-goals)).
 
@@ -68,7 +67,7 @@ archsetup is not:
   engine, no task-flag system, and no multi-select execution. The "catalog" is
   the directory tree under `core/tabs/`, navigated by name.
 - **A Secure Boot / sbctl automation.** `install.sh` explicitly leaves Secure
-  Boot manual (`install.sh:13`); the README covers it by hand.
+  Boot manual by design; the README covers it by hand.
 - **A configuration-management daemon.** Everything runs once, interactively,
   and exits.
 - **A backup mechanism.** The installer erases the chosen disk; the operator is
@@ -111,43 +110,43 @@ verify-install.sh (optional audit)                           ├── core/tabs
 
 Stage 1 and Stage 2 share no runtime state. Stage 2 discovers what Stage 1 built
 only through the installed system itself (and, for the verifier, the non-secret
-install record at `/var/log/archsetup-install.log`, `install.sh:931`).
+install record at `/var/log/archsetup-install.log`, `install.sh:856`).
 
-### 4.3 Stage-1 install flow (`install.sh:1082` `main`)
+### 4.3 Stage-1 install flow (`install.sh:1003` `main`)
 
 Ordered phases, each gated so a failure aborts before the next:
 
 1. `start_logging` — tee the whole run to `/var/log/archsetup-install-<ts>.log`,
-   ANSI stripped from the file (`install.sh:1057`).
+   ANSI stripped from the file (`install.sh:978`).
 2. `preflight` — assert root + UEFI, assert every destructive-phase tool exists,
-   sync the clock (`install.sh:211`).
+   sync the clock (`install.sh:177`).
 3. `setup_network` — auto-detect a wired carrier, else fall back to `iwctl` Wi-Fi;
-   verify real route + DNS reachability (`install.sh:277`).
+   verify real route + DNS reachability (`install.sh:239`).
 4. `gather_input` — the only interactive phase: disk, deterministic layout,
    hostname/username (regex-validated), passwords, timezone/locale/keymap (with
-   search helpers), profile, microcode auto-detect (`install.sh:453`).
+   search helpers), profile, microcode auto-detect (`install.sh:400`).
 5. `confirm_wipe` — show disk identity (model+size+serial) and planned layout;
    require typing the bare disk name **and** `YES`; refuse a disk with mounted
-   partitions (`install.sh:525`).
+   partitions (`install.sh:469`).
 6. `partition_disk` — sets `DESTRUCTIVE_STARTED=1`, tears down prior LUKS/LVM on
    the target disk only, writes GPT (ESP + LUKS), formats ESP, LUKS2-formats and
-   opens `cryptlvm` (`install.sh:603`).
+   opens `cryptlvm` (`install.sh:619`).
 7. `setup_lvm` — collision-free VG name, create PV/VG/LVs, mkfs, mount `/mnt`,
    and *prove* `/mnt` is the freshly created root LV before continuing
-   (`install.sh:644`).
+   (`install.sh:579`).
 8. `install_base` — rank mirrors (reflector, with rollback on empty result),
    pacstrap the base set, `genfstab -U`, harden the ESP vfat line
-   (`fmask=0137,dmask=0027`) (`install.sh:726`).
+   (`fmask=0137,dmask=0027`) (`install.sh:657`).
 9. `configure_system` — one `arch-chroot` heredoc: timezone, locale, vconsole,
    hostname/hosts, user, sudoers drop-in (parse-tested via `visudo` + live
    `sudo -l`), services, mkinitcpio HOOKS, kernel cmdline, UKI presets
    (`default` + `fallback`), build + validate UKIs (embed-check both UUIDs),
    install systemd-boot + loader.conf. Passwords set afterward via `chpasswd`
-   over stdin (`install.sh:922`).
+   over stdin (`install.sh:847`).
 10. `finish` — write the non-secret install record, copy the transcript into the
-    target, scrub secrets from env, unmount, offer reboot (`install.sh:976`).
+    target, scrub secrets from env, unmount, offer reboot (`install.sh:901`).
 
-On any non-zero exit, `on_err` (`install.sh:49`) prints the transcript path and,
+On any non-zero exit, `on_err` (`install.sh:35`) prints the transcript path and,
 only if `DESTRUCTIVE_STARTED=1`, the teardown recovery commands.
 
 ### 4.4 Stage-2 runtime flow (`start.sh` → `core/main.sh`)
@@ -157,37 +156,37 @@ only if `DESTRUCTIVE_STARTED=1`, the teardown recovery commands.
    `github.com/gameshler/archsetup` (`main` branch) into `TEMP_DIR`, moves it to
    `INSTALL_DIR`, `chmod +x` all `*.sh`, and runs `core/main.sh` (`start.sh:5`).
 2. `core/main.sh` exports `FILES`, `TABS_DIR`, and `COMMON_SCRIPT`
-   (`core/main.sh:6`). `TEMP_DIR` and `INSTALL_DIR` are inherited from
+   (`core/main.sh:5`). `TEMP_DIR` and `INSTALL_DIR` are inherited from
    `start.sh`. `SSH_PORT` is not set here: the security tabs ask for it and
    remember the answer (see below).
 3. `choose_directory` lists the current directory (top level shows category
    directories only; deeper levels show subdirectories and `*.sh` files),
-   sorted, with an Exit/Back sentinel (`core/main.sh:20`).
+   sorted, with an Exit/Back sentinel (`core/main.sh:19`).
 4. Selecting a directory descends; selecting a script runs it with `bash "$path"`
-   and pauses for Enter (`core/main.sh:70`).
-5. On exit, `cleanup` removes `TEMP_DIR` and `INSTALL_DIR` (`core/main.sh:22`).
+   and pauses for Enter (`core/main.sh:69`).
+5. On exit, `cleanup` removes `TEMP_DIR` and `INSTALL_DIR` (`core/main.sh:21`).
 
 ## 5. Stage-1: base installer (`install.sh`)
 
 ### 5.1 Inputs
 
 All input is collected in `gather_input`/`confirm_wipe` before anything
-destructive. Defaults mirror the README (`install.sh:81`): EFI 1 GiB, timezone
+destructive. Defaults mirror the README (`install.sh:64`): EFI 1 GiB, timezone
 `Europe/London`, locale `en_GB.UTF-8`, keymap `us` — all overridable.
 
 Validated inputs:
 
 - **Disk** — must be a whole disk or loop device, not a partition
-  (`install.sh:468`). Accepts `/dev/vda` or bare `vda`.
-- **Hostname** — RFC-style regex, 1–63 chars (`install.sh:484`).
-- **Username** — `^[a-z_][a-z0-9_-]{0,31}$` (`install.sh:487`).
+  (`install.sh:412`). Accepts `/dev/vda` or bare `vda`.
+- **Hostname** — RFC-style regex, 1–63 chars (`install.sh:428`).
+- **Username** — `^[a-z_][a-z0-9_-]{0,31}$` (`install.sh:431`).
 - **Passwords** — root, user, LUKS: entered twice, must match, non-empty
-  (`install.sh:177`).
+  (`install.sh:149`).
 - **Timezone / locale / keymap** — resolved against `/usr/share/zoneinfo`,
   `/etc/locale.gen`, and `localectl list-keymaps`, each with a search helper.
 - **Profile** — `desktop` or `server`; gates `fstrim.timer` and LUKS discards.
 
-### 5.2 Deterministic disk layout (`configure_layout`, `install.sh:415`)
+### 5.2 Deterministic disk layout (`configure_layout`, `install.sh:368`)
 
 No layout prompts. Computed from disk + RAM:
 
@@ -199,23 +198,23 @@ No layout prompts. Computed from disk + RAM:
 | home LV (ext4, `/home`) | remaining space |
 
 A fit check aborts if the fixed regions leave no room for `/home`
-(`install.sh:446`).
+(`install.sh:393`).
 
 ### 5.3 Encryption, LVM, boot (invariants)
 
 - **LUKS2** on partition 2, opened as `/dev/mapper/cryptlvm`. Discards
   (`--allow-discards --persistent`) only on the desktop profile
-  (`install.sh:631`).
+  (`install.sh:567`).
 - **LVM**: single PV on `cryptlvm`, VG named `vg` (or `vg0`, `vg1`… if `vg`
-  already exists on another disk) (`install.sh:648`).
+  already exists on another disk) (`install.sh:582`).
 - **Boot**: mkinitcpio UKI with HOOKS ordering `… sd-encrypt lvm2 filesystems
   fsck`; kernel cmdline references the LUKS container by UUID and root by
   filesystem UUID; `PRESETS=('default' 'fallback')` so both kernels
   (`linux`, `linux-lts`) build a pruned and a recovery image — four UKIs total
-  (`install.sh:842`). systemd-boot installed to the ESP, `loader.conf` default
+  (`install.sh:861`). systemd-boot installed to the ESP, `loader.conf` default
   `arch-linux.efi`, `timeout 3`, `editor no`.
 
-### 5.4 Base package set (`install.sh:89`)
+### 5.4 Base package set (`install.sh:72`)
 
 `base linux linux-firmware linux-lts lvm2 vim sudo git networkmanager efibootmgr
 ntfs-3g binutils systemd-ukify` plus the detected microcode (`intel-ucode` /
@@ -229,41 +228,41 @@ enabled; sudoers drop-in fails `visudo -c`, `/etc/sudoers` doesn't include
 `sudoers.d`, or `sudo -l` doesn't resolve the user to an all-commands policy; the
 HOOKS line didn't set as expected; the cmdline is missing a UUID; any of the four
 UKIs is missing/empty; or the systemd-boot loader or its `loader.conf` default is
-absent (`install.sh:724`–`install.sh:902`).
+absent (`install.sh:655`–`install.sh:827`).
 
-### 5.6 Secret handling (`install.sh:635`, `install.sh:922`)
+### 5.6 Secret handling (`install.sh:571`, `install.sh:847`)
 
 Only non-secret values (`CH_TZ`, `CH_HOST`, UUIDs, …) cross into the chroot
 environment. LUKS passphrase is piped to `cryptsetup --key-file -`; root and user
 passwords are piped to `chpasswd` over stdin *after* the chroot heredoc, so no
 password ever appears in the environment, argv, disk, or the transcript.
-`finish` unsets `ROOT_PW USER_PW LUKS_PW` (`install.sh:983`).
+`finish` unsets `ROOT_PW USER_PW LUKS_PW` (`install.sh:908`).
 
 ## 6. Stage-1: verifier (`verify-install.sh`)
 
 Run on the booted target. **Strictly read-only** — it inspects state (`findmnt`,
 `lsblk`, `blkid`, `cryptsetup luksDump/status`, `pvs`/`lvs`, `pacman -Q`,
 `systemctl is-enabled`, `objcopy`, `bootctl status`) and never writes, mounts,
-enables, or formats (`verify-install.sh:11`).
+enables, or formats (`verify-install.sh:3`).
 
 - **Self-elevates** via `exec sudo` if not root; degrades privileged checks to
-  WARN if sudo is unavailable (`verify-install.sh:32`).
+  WARN if sudo is unavailable (`verify-install.sh:18`).
 - **Auto-detects** the booted layout (ESP, root source, VG, LUKS backing device,
   disk) and reads profile/username from the install record
-  (`verify-install.sh:79`).
+  (`verify-install.sh:62`).
 - **Section coverage** mirrors install scope exactly: A. partition/LUKS/LVM,
   B. filesystems + fstab hardening, C. base packages + microcode,
   D. localization + identity, E. user + sudo, F. services, G. boot chain (HOOKS,
   cmdline UUID cross-checks, four UKIs with embedded-UUID checks, systemd-boot +
   loader.conf), H. install artifacts.
-- **Exit status** is non-zero if any check FAILs (`verify-install.sh:413`).
+- **Exit status** is non-zero if any check FAILs (`verify-install.sh:378`).
 - **Scope boundary**: post-boot items (Secure Boot, nftables, sysctl, desktop,
-  apps, yay, TLP) are explicitly *not* checked (`verify-install.sh:16`).
+  apps, yay, TLP) are explicitly *not* checked (`verify-install.sh:6`).
 
 The header documents the deliberate divergences from the literal README that are
 verified as *intended* (dynamic LV sizes, `base`-prefixed HOOKS, `root=UUID=`,
 `('default' 'fallback')` presets, sudoers drop-in, profile-gated discards)
-(`verify-install.sh:20`).
+(`verify-install.sh:6`).
 
 ## 7. Stage-2: catalog and menu
 
@@ -312,7 +311,7 @@ Notable task scripts beyond simple installers:
 - Selection is by list index, re-read from the tree on each render — a script's
   position can shift if files are added.
 - `bash "$path"` runs every task script under `bash` regardless of its shebang
-  (`core/main.sh:70`). A `#!/bin/sh -e` script therefore does **not** get its
+  (`core/main.sh:69`). A `#!/bin/sh -e` script therefore does **not** get its
   `-e` applied when launched from the menu (the shebang is bypassed). Scripts
   must not depend on their own shebang flags when run this way.
 - There is no search, no multi-select, no per-task confirmation layer, and no
@@ -335,7 +334,7 @@ Convention:
   `system/dev-setup.sh`, `apps/dwm/bash-setup.sh`, `utils/auto-mount.sh`, plus
   the Stage-1 scripts and `core/main.sh`.
 
-Because the menu launches scripts with `bash` (`core/main.sh:70`), a task script
+Because the menu launches scripts with `bash` (`core/main.sh:69`), a task script
 must be correct both when run directly (honoring its shebang) and when run under
 bash from the menu.
 
@@ -344,11 +343,11 @@ bash from the menu.
 All 29 task scripts source the shared library with `. "$COMMON_SCRIPT"` (e.g.
 `core/tabs/security/nftables.sh:3`) **except one**: `utils/auto-mount.sh`, which
 is fully self-contained (its own helpers, no pacman dependency). `$COMMON_SCRIPT`
-is exported by `core/main.sh:8`.
+is exported by `core/main.sh:7`.
 
 **Sourcing has side effects.** `common-script.sh` runs
 `check_package_manager "pacman"` and `check_init_manager 'systemctl rc-service
-sv'` at source time (`core/tabs/common-script.sh:145`). Sourcing therefore sets
+sv'` at source time (`core/tabs/common-script.sh:143`). Sourcing therefore sets
 `PACKAGER` and `INIT_MANAGER`, prints a "Using … " line, and **exits the script**
 if pacman is absent. A task script that sources the library inherits this
 pacman-only gate for free. (This is also why `auto-mount.sh`, which must run on
@@ -363,11 +362,11 @@ guaranteed when the script is launched through the Stage-2 chain
 
 | Variable | Set by | Value / use |
 | --- | --- | --- |
-| `TEMP_DIR` | `start.sh:6` | Scratch dir. Used by `neovim.sh` and `bash-setup.sh` for clones/downloads. |
-| `INSTALL_DIR` | `start.sh:7` | `$HOME/Downloads/archsetup`; repo root at runtime. |
-| `FILES` | `core/main.sh:6` | `$INSTALL_DIR/files` (dotfile source). |
-| `TABS_DIR` | `core/main.sh:7` | `$INSTALL_DIR/core/tabs`. |
-| `COMMON_SCRIPT` | `core/main.sh:8` | `$TABS_DIR/common-script.sh`. |
+| `TEMP_DIR` | `start.sh:5` | Scratch dir. Used by `neovim.sh` and `bash-setup.sh` for clones/downloads. |
+| `INSTALL_DIR` | `start.sh:6` | `$HOME/Downloads/archsetup`; repo root at runtime. |
+| `FILES` | `core/main.sh:5` | `$INSTALL_DIR/files` (dotfile source). |
+| `TABS_DIR` | `core/main.sh:6` | `$INSTALL_DIR/core/tabs`. |
+| `COMMON_SCRIPT` | `core/main.sh:7` | `$TABS_DIR/common-script.sh`. |
 | `SSH_PORT` | prompted by `security/ssh.sh`, persisted to `$SSH_PORT_FILE` | Consumed by `security/ssh.sh`, `security/nftables.sh`, `security/ufw.sh`. Set it in the environment to run those tabs unattended. |
 | `SSH_PORT_FILE` | `common-script.sh` | `${XDG_CONFIG_HOME:-$HOME/.config}/archsetup/ssh-port`; outside `INSTALL_DIR` so the chosen port survives cleanup. |
 | `MIRROR_COUNTRY` | prompted by `system/setup.sh` (geo-IP guess as the default) | ISO country code reflector ranks within, baked into `/etc/xdg/reflector/reflector.conf` for the boot run. Set it in the environment to run that tab unattended; empty means rank worldwide. |
@@ -378,7 +377,7 @@ guaranteed when the script is launched through the Stage-2 chain
 Scripts run unprivileged and apply `sudo` per privileged command
 (`sudo systemctl enable …`, `sudo make install`, `sudo tee …`), never by running
 the whole script as root. Some scripts wrap a batch of root work in
-`sudo bash -c '…'` (e.g. `security/nftables.sh:36`). There is no configurable
+`sudo bash -c '…'` (e.g. `security/nftables.sh:35`). There is no configurable
 escalation tool; `sudo` is hardcoded.
 
 ### 8.5 Idempotency
@@ -416,9 +415,9 @@ Scripts must stop on unsupported or ambiguous states rather than proceed blindly
 | `check_flatpak` | Installs Flatpak and adds the Flathub remote if missing. | `install_packages --flatpak` |
 | `install_packages [--official\|--aur\|--flatpak] pkgs…` | Installs via pacman (default), the AUR helper, or Flatpak. | most task scripts |
 | `check_init_manager` | Sets `INIT_MANAGER` from `systemctl`/`rc-service`/`sv`. | (auto, on source) |
-| `is_service_active` | Init-agnostic service-active check. | `apps/dwm/dwm-setup.sh:112` |
+| `is_service_active` | Init-agnostic service-active check. | `apps/dwm/dwm-setup.sh:254` |
 
-The bottom of the file (`core/tabs/common-script.sh:145`) unconditionally runs
+The bottom of the file (`core/tabs/common-script.sh:143`) unconditionally runs
 `check_package_manager "pacman"` and `check_init_manager …`, which is why
 sourcing it asserts an Arch/pacman host.
 
@@ -442,7 +441,7 @@ file for archsetup itself and no automation/config interface — every run is
 interactive.
 
 The one machine-written record is the **install record**
-(`/var/log/archsetup-install.log`, mode 600, no secrets, `install.sh:931`),
+(`/var/log/archsetup-install.log`, mode 600, no secrets, `install.sh:856`),
 consumed by the verifier to recover the profile and username.
 
 ## 11. Quality requirements
@@ -461,7 +460,7 @@ CI enforcing them** (see [§13](#13-future-compatibility)).
 - **The verifier** is the acceptance test for a Stage-1 install: a clean
   `verify-install.sh` run (exit 0, zero FAIL) means the system matches spec.
 - **Testing** is done in VMs / loop-backed disks (the installer accepts loop
-  devices for exactly this, `install.sh:468`).
+  devices for exactly this, `install.sh:412`).
 
 ## 12. Acceptance criteria for a new task script
 
@@ -500,7 +499,7 @@ Capabilities intentionally absent today, listed so the spec doesn't imply them:
 - **No multi-distribution support.** The pacman/`yay` assertion is load-bearing.
   Portability would require a real package-manager abstraction in
   `common-script.sh`.
-- **No Secure Boot automation.** Left manual by design (`install.sh:13`); a
+- **No Secure Boot automation.** Left manual by design; a
   future `sbctl` phase could extend Stage 1.
 
 Any such extension should preserve the two-stage model and the

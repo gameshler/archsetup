@@ -44,13 +44,10 @@ backup_config() {
     fi
 }
 
-# Set a directive in the global section of sshd_config, in place.
-#
 # The existing line is rewritten rather than a new one appended, because sshd
 # keeps the first value it sees for these keywords: a second copy at the bottom
 # of the file would simply be ignored. Any later duplicate in the global section
 # is commented out so the file says what sshd actually does.
-#
 # Everything from the first `Match` line onward is left alone. Directives there
 # apply only to connections matching that block, so rewriting them would change
 # a rule this script was never asked about.
@@ -107,7 +104,6 @@ write_config() {
 # Password logins are about to be disabled, which locks out every remote login
 # until a key is in place. Offer to install one now rather than let that be
 # discovered from the wrong side of the door.
-#
 # The key wanted here is the PUBLIC key of the machine you connect FROM. The
 # key system/git-ssh.sh creates is for authenticating outward to GitHub and is
 # not interchangeable with this one.
@@ -206,8 +202,6 @@ apply_config() {
 
     [ "$KEY_INSTALLED" -eq 1 ] || warn_no_key
 
-    # The old script only restarted sshd, so the hardening was gone after a
-    # reboot unless the unit happened to be enabled already.
     sudo systemctl enable sshd.service
     sudo systemctl restart sshd.service
 
@@ -216,11 +210,6 @@ apply_config() {
     printf "%b\n" "Run the ufw or nftables tab to open it - they read the same port."
 }
 
-# This tab sets up the SSH *server*. Authenticating to GitHub is a different
-# job, and conflating the two is why the key generated here never worked:
-# nothing registered it with GitHub and the agent started here died with the
-# script. The port chosen above does not affect GitHub either - that is an
-# outbound connection to github.com:22, not a listener on this machine.
 point_at_git_ssh() {
     printf "%b\n" "This tab configures the SSH server only."
     printf "%b\n" "For a GitHub key, run System > Git SSH Key."
