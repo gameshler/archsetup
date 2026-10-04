@@ -286,7 +286,7 @@ category directory. No registration step exists.
 | `apps/browsers/` | brave, brave-origin, chrome, firefox, librewolf, thorium |
 | `apps/communication-apps/` | discord, slack, telegram, zoom |
 | `apps/developer-tools/` | cursor, githubdesktop, neovim, vscode |
-| `apps/dwm/` | bash-setup, dwm-setup, ghostty-setup, rofi-setup |
+| `apps/dwm/` | bash-setup, dwm-setup, ghostty-setup |
 | `security/` | nftables, ssh, ufw |
 | `system/` | dev-setup, gpu-driver, setup, system-cleanup, system-update, virtualisation |
 | `utils/` | auto-mount, docker-setup |
@@ -388,7 +388,7 @@ installed"; fi` (e.g. `security/ssh.sh`, `apps/browsers/firefox.sh`,
 `system/gpu-driver.sh`, `utils/docker-setup.sh`). `install_packages` uses
 `pacman -S --needed --noconfirm`. Config-writing scripts lean on idempotent
 `sed`/`grep -q` edits (e.g. `system/setup.sh`) or explicit `.bak`/`-bak` backups
-before overwrite (`ghostty-setup.sh`, `rofi-setup.sh`, `auto-mount.sh`).
+before overwrite (`ghostty-setup.sh`, `auto-mount.sh`).
 `security/ssh.sh` rewrites each `sshd_config` directive in place with `awk`
 (`set_directive`) rather than appending, because sshd keeps the first value it
 sees for a keyword; it backs up to `sshd_config.archsetup.bak` first and only
@@ -432,8 +432,8 @@ sourcing it asserts an Arch/pacman host.
 - `system/dev-setup.sh` — copies `files/.gitignore` and `files/.gitconfig` to
   `$HOME` (`system/dev-setup.sh:30`).
 
-`ghostty-setup.sh` and `rofi-setup.sh` fetch their configs from
-`github.com/gameshler/dwm` over `curl` rather than from `files/`.
+`ghostty-setup.sh` fetches its config from `github.com/gameshler/dwm` over
+`curl` rather than from `files/`.
 `dwm-setup.sh` clones that repo instead and leaves the placing to its
 `make install`, which copies `config/*` into `~/.config` and `scripts/*` into
 `~/.local/bin` as the invoking user (`SUDO_USER`). There is no configuration

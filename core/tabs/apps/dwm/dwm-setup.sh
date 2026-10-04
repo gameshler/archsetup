@@ -56,7 +56,7 @@ has_wifi_device() {
 # missing or unable to respond to a click.
 # xorg-xrdb is the one whose absence is invisible. scripts/quickshell-launch.sh
 # translates Xft.dpi into QT_FONT_DPI only when xrdb is on PATH, so without it a
-# HiDPI screen scales dwm's font and rofi while the bar stays at 1x, and nothing
+# HiDPI screen scales dwm's font while the bar stays at 1x, and nothing
 # reports why. inter-font is the bar's UI face and pacman-contrib provides
 # checkupdates, which the update pill prefers over an offline `pacman -Qu`.
 setup_dwm() {
@@ -65,7 +65,7 @@ setup_dwm() {
         libx11 libxinerama libxft libxcb imlib2 \
         xorg-xprop xorg-xrandr xorg-xsetroot xorg-xset xorg-xrdb \
         quickshell wmctrl xdotool \
-        ghostty rofi picom dunst feh flameshot dex mate-polkit \
+        ghostty picom dunst feh flameshot dex mate-polkit \
         xdg-utils xdg-user-dirs xdg-desktop-portal-gtk \
         ttf-firacode-nerd inter-font noto-fonts-emoji \
         networkmanager network-manager-applet \
@@ -280,7 +280,7 @@ setup_display_manager() {
 
 # Nothing creates ~/.Xresources - not this tab, and not the repo's own
 # installer - and scripts/.xprofile merges it only when it is there. That single
-# value is what scales dwm's font, rofi and the bar together, so a 4K screen
+# value is what scales dwm's font and the bar together, so a 4K screen
 # comes up looking broken until it is set. Say so instead of leaving it to be
 # discovered.
 report_hidpi() {
